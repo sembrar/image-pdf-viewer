@@ -75,13 +75,20 @@ class PdfViewer(tk.Tk):
         #  If not left clicked, only the motion inside the widget is registered
 
         try:
-            hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book}
+            self._hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book}
         except AttributeError:
-            print("Error: Some functions mentioned for key bindings in hot_key_bindings do not exist."
+            print("Error: Some functions mentioned for key bindings in self._hot_key_bindings do not exist."
                   " No key bindings will be made.")
-            hot_key_bindings = {}
-        for k in hot_key_bindings:
-            self.bind_all(f"<Key-{k}>", hot_key_bindings[k])
+            self._hot_key_bindings = {}
+        for k in self._hot_key_bindings:
+            self.bind_all(f"<Key-{k}>", self._hot_key_bindings[k])
+
+        self._text_bookmarks.bind("<Key>", self._key_press_in_text_bookmarks)
+        # The idea is to make the text readonly but also respond to hot-keys
+        # For this purpose, in the above event handler, hot key functions will be executed if there is one for the
+        # event's keysym (i.e. the key pressed)
+        # The event handler itself will return the string "break" so that the text widget doesn't get characters into it
+        # This is working irrespective of whether this binding is done before the binding of hot keys above, or after
 
     def set_default_title(self):
         self.title("PdfViewer")
@@ -148,6 +155,14 @@ class PdfViewer(tk.Tk):
 
     def _open_a_recent_book(self, event):
         return
+
+    def _key_press_in_text_bookmarks(self, event):
+        try:
+            # if there is any hot key binding to this key, do it
+            self._hot_key_bindings[event.keysym](event)
+        except KeyError:
+            pass
+        return "break"  # makes the text bookmark readonly
 
 
 def main():
