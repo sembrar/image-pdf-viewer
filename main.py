@@ -3,6 +3,7 @@ import sys
 import os
 import tkinter as tk
 from tkinter import ttk
+import json
 
 import ctypes
 
@@ -10,6 +11,12 @@ ctypes.windll.shcore.SetProcessDpiAwareness(1)  # do this once before starting t
 
 
 DEFAULT_BOOKMARKS_TEXT_WIDTH = 40  # It is num chars. Also, height isn't required because it will expand vertically
+
+_FOLDER_OF_THIS_PYTHON_FILE = os.path.split(sys.argv[0])[0]  # sys.argv[0] is the rel path to the file being run
+SETTINGS_FILE_PATH = os.path.join(_FOLDER_OF_THIS_PYTHON_FILE, "data\\settings.json")
+
+KEY_SETTING_GUI_GEOMETRY = "geometry"
+KEY_SETTING_GUI_STATE = "state"  # maximized window, or normal window
 
 
 class PdfViewer(tk.Tk):
@@ -54,6 +61,8 @@ class PdfViewer(tk.Tk):
         self._canvas.grid(row=0, column=2, sticky='news')
         self.columnconfigure(2, weight=1)
 
+        self._load_gui_settings()
+
         # bindings
 
         self._size_grip_like_frame.bind("<Button-1>", self._left_click_on_size_grip_like_frame)
@@ -75,14 +84,37 @@ class PdfViewer(tk.Tk):
         print("_motion_in_size_grip_like_canvas", self._i)
 
     def destroy(self):
-        # todo save GUI settings, which book opened
+        self._save_gui_settings()
         tk.Tk.destroy(self)
+
+    def _save_gui_settings(self):
+        settings = {KEY_SETTING_GUI_STATE: self.state()}
+        if settings[KEY_SETTING_GUI_STATE] == "zoomed":  # if zoomed, make it normal to get underlying geometry string
+            self.state("normal")
+        settings[KEY_SETTING_GUI_GEOMETRY] = self.winfo_geometry()
+
+        # todo save which book is opened
+
+        # print(settings)
+
+        try:
+            with open(SETTINGS_FILE_PATH, 'w') as f:
+                f.write(json.dumps(settings, indent=2))
+        except IOError:
+            print("IOError while writing settings to", SETTINGS_FILE_PATH)
+
+    def _load_gui_settings(self):
+        try:
+            with open(SETTINGS_FILE_PATH) as f:
+                settings = json.loads(f.read())  # type: dict
+        except IOError:
+            print(f'IOError while reading settings from "{SETTINGS_FILE_PATH}". The file may not exist yet.')
+            return
+        self.geometry(newGeometry=settings.get(KEY_SETTING_GUI_GEOMETRY, None))
+        self.state(newstate=settings.get(KEY_SETTING_GUI_STATE, None))
 
 
 def main():
-    _folder_of_this_python_file = os.path.split(sys.argv[0])[0]  # sys.argv[0] is the rel path to the file being run
-
-    # data_folder = os.path.join(_folder_of_this_python_file, "data")
 
     # parser = argparse.ArgumentParser()
 
