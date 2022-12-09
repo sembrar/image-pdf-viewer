@@ -3,6 +3,7 @@ import sys
 import os
 import tkinter as tk
 from tkinter import ttk
+from tkinter import filedialog
 import json
 
 import ctypes
@@ -17,6 +18,7 @@ SETTINGS_FILE_PATH = os.path.join(_FOLDER_OF_THIS_PYTHON_FILE, "data\\settings.j
 
 KEY_SETTING_GUI_GEOMETRY = "geometry"
 KEY_SETTING_GUI_STATE = "state"  # maximized window, or normal window
+KEY_RECENT_DIRECTORY_FOR_OPEN_A_BOOK = "recent-directory-for-open-a-book"
 
 
 class PdfViewer(tk.Tk):
@@ -24,6 +26,8 @@ class PdfViewer(tk.Tk):
     def __init__(self):
         tk.Tk.__init__(self)
         self.set_default_title()
+
+        self._settings = dict()
 
         # a frame for bookmarks
         # it holds a text and 2 scrolls (horizontal and vertical)
@@ -70,48 +74,80 @@ class PdfViewer(tk.Tk):
         # note: After left clicking, even moving outside of the widget will register the Motion event, which is useful
         #  If not left clicked, only the motion inside the widget is registered
 
+        try:
+            hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book}
+        except AttributeError:
+            print("Error: Some functions mentioned for key bindings in hot_key_bindings do not exist."
+                  " No key bindings will be made.")
+            hot_key_bindings = {}
+        for k in hot_key_bindings:
+            self.bind_all(f"<Key-{k}>", hot_key_bindings[k])
+
     def set_default_title(self):
         self.title("PdfViewer")
 
     def _left_click_on_size_grip_like_frame(self, event):
-        print("left_click_on_size_grip_like_canvas")
+        # print("left_click_on_size_grip_like_canvas")
+        pass
 
     def _motion_in_size_grip_like_frame(self, event):
-        try:
-            self._i += 1
-        except:
-            self._i = 0
-        print("_motion_in_size_grip_like_canvas", self._i)
+        # try:
+        #     self._i += 1
+        # except:
+        #     self._i = 0
+        # print("_motion_in_size_grip_like_canvas", self._i)
+        pass
 
     def destroy(self):
         self._save_gui_settings()
         tk.Tk.destroy(self)
 
     def _save_gui_settings(self):
-        settings = {KEY_SETTING_GUI_STATE: self.state()}
-        if settings[KEY_SETTING_GUI_STATE] == "zoomed":  # if zoomed, make it normal to get underlying geometry string
+        self._settings[KEY_SETTING_GUI_STATE] = self.state()
+        if self._settings[KEY_SETTING_GUI_STATE] == "zoomed":
+            # if zoomed, make it normal to get underlying geometry string
             self.state("normal")
-        settings[KEY_SETTING_GUI_GEOMETRY] = self.winfo_geometry()
+        self._settings[KEY_SETTING_GUI_GEOMETRY] = self.winfo_geometry()
 
         # todo save which book is opened
 
-        # print(settings)
+        print(self._settings)
 
         try:
             with open(SETTINGS_FILE_PATH, 'w') as f:
-                f.write(json.dumps(settings, indent=2))
+                f.write(json.dumps(self._settings, indent=2))
         except IOError:
             print("IOError while writing settings to", SETTINGS_FILE_PATH)
 
     def _load_gui_settings(self):
         try:
             with open(SETTINGS_FILE_PATH) as f:
-                settings = json.loads(f.read())  # type: dict
+                self._settings = json.loads(f.read())  # type: dict
         except IOError:
             print(f'IOError while reading settings from "{SETTINGS_FILE_PATH}". The file may not exist yet.')
             return
-        self.geometry(newGeometry=settings.get(KEY_SETTING_GUI_GEOMETRY, None))
-        self.state(newstate=settings.get(KEY_SETTING_GUI_STATE, None))
+        self.geometry(newGeometry=self._settings.get(KEY_SETTING_GUI_GEOMETRY, None))
+        self.state(newstate=self._settings.get(KEY_SETTING_GUI_STATE, None))
+
+    def _open_a_book(self, event):
+        recent_directory_for_open_a_book = self._settings.get(KEY_RECENT_DIRECTORY_FOR_OPEN_A_BOOK, None)
+        if (recent_directory_for_open_a_book is None) or (not os.path.isdir(recent_directory_for_open_a_book)):
+            # if recent directory for open a book is invalid, put the drive letter in its place
+            recent_directory_for_open_a_book = os.path.splitdrive(sys.argv[0])[0]
+
+        result = filedialog.askdirectory(initialdir=recent_directory_for_open_a_book)
+        if result == "":
+            print("Open a book cancelled")
+            return
+
+        print(f"Chosen folder {result} for open a book.")
+
+        # save the parent directory for recent_directory_for_open_a_book
+        # the parent directory is saved here because the directory itself is the book
+        self._settings[KEY_RECENT_DIRECTORY_FOR_OPEN_A_BOOK] = os.path.split(result)[0]
+
+    def _open_a_recent_book(self, event):
+        return
 
 
 def main():
