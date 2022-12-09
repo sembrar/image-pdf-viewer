@@ -21,6 +21,11 @@ KEY_SETTING_GUI_STATE = "state"  # maximized window, or normal window
 KEY_RECENT_DIRECTORY_FOR_OPEN_A_BOOK = "recent-directory-for-open-a-book"
 
 
+KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS = set()
+KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS.update(map(lambda x: f"F{x}", range(1, 12+1)))  # function keys
+print("Keys that will be further processed in text bookmarks:", KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS)
+
+
 class PdfViewer(tk.Tk):
 
     def __init__(self):
@@ -157,12 +162,20 @@ class PdfViewer(tk.Tk):
         return
 
     def _key_press_in_text_bookmarks(self, event):
+        print("Key press in text bookmarks:", event.keysym)
         try:
             # if there is any hot key binding to this key, do it
             self._hot_key_bindings[event.keysym](event)
         except KeyError:
             pass
-        return "break"  # makes the text bookmark readonly
+
+        if event.keysym in KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS:
+            # this will allow pressing "Alt F4" for further processing which will close the application
+            # otherwise, pressing "Alt F4" when text bookmarks is in Focus will not close the application because
+            # the event will be stopped from further processing because of returning "break"
+            return None
+
+        return "break"  # makes the text bookmark readonly by disallowing further processing of the event
 
 
 def main():
