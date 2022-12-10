@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
 import json
+from PIL import Image, ImageTk
 
 import ctypes
 
@@ -18,12 +19,38 @@ SETTINGS_FILE_PATH = os.path.join(_FOLDER_OF_THIS_PYTHON_FILE, "data\\settings.j
 
 KEY_SETTING_GUI_GEOMETRY = "geometry"
 KEY_SETTING_GUI_STATE = "state"  # maximized window, or normal window
-KEY_RECENT_DIRECTORY_FOR_OPEN_A_BOOK = "recent-directory-for-open-a-book"
+CURRENTLY_OPENED_BOOK = "currently-opened-book"
 
 
 KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS = set()
 KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS.update(map(lambda x: f"F{x}", range(1, 12+1)))  # function keys
 print("Keys that will be further processed in text bookmarks:", KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS)
+
+
+KEY_CURRENT_OPENED_PAGE_NUM = "current-opened-page-num"
+
+TAG_OBJECT = "obj"
+TAG_PAGE_IMAGE = "pg-img"
+
+
+def get_metadata_folder(book_folder):
+    return os.path.join(book_folder, "metadata")
+
+
+def get_bookmarks_file_path(book_metadata_folder):
+    return os.path.join(book_metadata_folder, "bookmarks.json")
+
+
+def get_book_settings_file_path(book_metadata_folder):
+    return os.path.join(book_metadata_folder, "book_settings.json")
+
+
+def get_annotations_file_path(book_metadata_folder):
+    return os.path.join(book_metadata_folder, "annotations.json")
+
+
+def get_page_path(book_folder, page_num):
+    return os.path.join(book_folder, f'{str(page_num).rjust(6, "0")}.png')
 
 
 class PdfViewer(tk.Tk):
@@ -33,6 +60,8 @@ class PdfViewer(tk.Tk):
         self.set_default_title()
 
         self._settings = dict()
+        self._loaded_images = dict()
+        self._annotations = dict()
 
         # a frame for bookmarks
         # it holds a text and 2 scrolls (horizontal and vertical)
@@ -141,22 +170,31 @@ class PdfViewer(tk.Tk):
         self.geometry(newGeometry=self._settings.get(KEY_SETTING_GUI_GEOMETRY, None))
         self.state(newstate=self._settings.get(KEY_SETTING_GUI_STATE, None))
 
-    def _open_a_book(self, event):
-        recent_directory_for_open_a_book = self._settings.get(KEY_RECENT_DIRECTORY_FOR_OPEN_A_BOOK, None)
-        if (recent_directory_for_open_a_book is None) or (not os.path.isdir(recent_directory_for_open_a_book)):
-            # if recent directory for open a book is invalid, put the drive letter in its place
-            recent_directory_for_open_a_book = os.path.splitdrive(sys.argv[0])[0]
+    def _open_a_book(self, _event):
 
-        result = filedialog.askdirectory(initialdir=recent_directory_for_open_a_book)
+        initial_dir_for_ask_dir_dialog = None
+
+        # find the initial directory for ask directory dialog:
+        # if a book is opened currently, use its parent directory as initial directory, else use the Drive letter
+        currently_opened_book = self._settings.get(CURRENTLY_OPENED_BOOK, None)
+        if currently_opened_book is not None:
+            parent_dir_of_currently_opened_book = os.path.split(currently_opened_book)[0]
+            if os.path.isdir(parent_dir_of_currently_opened_book):
+                initial_dir_for_ask_dir_dialog = parent_dir_of_currently_opened_book
+
+        if initial_dir_for_ask_dir_dialog is None:  # if it is still None, use the drive letter
+            initial_dir_for_file_dialog = os.path.splitdrive(sys.argv[0])[0]
+
+        result = filedialog.askdirectory(initialdir=initial_dir_for_ask_dir_dialog)
         if result == "":
             print("Open a book cancelled")
             return
 
         print(f"Chosen folder {result} for open a book.")
 
-        # save the parent directory for recent_directory_for_open_a_book
-        # the parent directory is saved here because the directory itself is the book
-        self._settings[KEY_RECENT_DIRECTORY_FOR_OPEN_A_BOOK] = os.path.split(result)[0]
+        self._settings[CURRENTLY_OPENED_BOOK] = result
+
+        self._load_book(result)
 
     def _open_a_recent_book(self, event):
         return
@@ -176,6 +214,44 @@ class PdfViewer(tk.Tk):
             return None
 
         return "break"  # makes the text bookmark readonly by disallowing further processing of the event
+
+    def _load_book(self, book_directory):
+        metadata_folder = get_metadata_folder(book_directory)
+
+        page_to_open = 1
+
+        if os.path.exists(metadata_folder):
+
+            # read book settings like which page opened
+            try:
+                with open(get_book_settings_file_path(metadata_folder)) as f:
+                    book_settings = json.loads(f.read())  # type: dict
+                page_to_open = book_settings.get(KEY_CURRENT_OPENED_PAGE_NUM, page_to_open)
+            except IOError:
+                print("Book-settings file doesn't exist for this book:", get_book_settings_file_path(metadata_folder))
+
+            # read bookmarks
+            self._text_bookmarks.delete("1.0", tk.END)
+            try:
+                with open(get_bookmarks_file_path(metadata_folder)) as f:
+                    bookmarks = json.loads(f.read())
+                self._text_bookmarks.insert("1.0", "\n".join(map(lambda x: f"{' ' * x[0]} {x[1]}  {x[2]}", bookmarks)))
+            except IOError:
+                print("Bookmarks file doesn't exist for this book:", get_bookmarks_file_path(metadata_folder))
+
+            # read annotations
+
+        self._load_page(page_to_open)
+
+    def _load_page(self, page_num):
+        self._canvas.delete(TAG_OBJECT)
+        self._loaded_images.clear()
+
+        page_png_image_path = get_page_path(self._settings[CURRENTLY_OPENED_BOOK], page_num)
+        self._loaded_images[page_num] = ImageTk.PhotoImage(Image.open(page_png_image_path))
+
+        self._canvas.create_image(2, 2, anchor="nw", image=self._loaded_images[page_num],
+                                  tags=(TAG_OBJECT, TAG_PAGE_IMAGE))
 
 
 def main():
