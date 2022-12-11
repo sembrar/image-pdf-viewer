@@ -154,7 +154,7 @@ class PdfViewer(tk.Tk):
 
     def set_default_title(self):
         if ALLOW_DEBUGGING:
-            print("Set default title")
+            print("\nSet default title")
         self.title("PdfViewer")
 
     def _left_click_on_size_grip_like_frame(self, event):
@@ -175,7 +175,7 @@ class PdfViewer(tk.Tk):
 
     def _save_gui_settings(self):
         if ALLOW_DEBUGGING:
-            print("Save GUI settings")
+            print("\nSave GUI settings")
 
         # there may already be some settings in self._gui_settings like currently-opened-book etc
         # here, we add some additional ones like state i.e. zoomed/normal, application geometry string
@@ -196,7 +196,7 @@ class PdfViewer(tk.Tk):
 
     def _load_gui_settings(self):
         if ALLOW_DEBUGGING:
-            print("Load GUI settings")
+            print("\nLoad GUI settings")
 
         try:
             with open(SETTINGS_FILE_PATH) as f:
@@ -214,7 +214,7 @@ class PdfViewer(tk.Tk):
     def _open_a_book(self, _event):
 
         if ALLOW_DEBUGGING:
-            print("Open a book")
+            print("\nOpen a book")
 
         initial_dir_for_ask_dir_dialog = None
 
@@ -248,7 +248,7 @@ class PdfViewer(tk.Tk):
 
     def _key_press_in_text_bookmarks(self, event):
         if ALLOW_DEBUGGING:
-            print("Key press in text bookmarks:", event.keysym)
+            print("\nKey press in text bookmarks:", event.keysym)
 
         try:
             # if there is any hot key binding to this key, do it
@@ -267,7 +267,7 @@ class PdfViewer(tk.Tk):
 
     def _load_book(self, book_directory):
         if ALLOW_DEBUGGING:
-            print("Load book", book_directory)
+            print("\nLoad book", book_directory)
 
         metadata_folder = get_metadata_folder(book_directory)
 
@@ -299,7 +299,8 @@ class PdfViewer(tk.Tk):
     def _load_page(self, page_num, delete_all_objects=True, x=2, y=2, anchor="nw"):
 
         if ALLOW_DEBUGGING:
-            print(f"Load page {page_num} anchored at at {anchor} of ({x}, {y}) Delete all objects:{delete_all_objects}")
+            print(f"\nLoad page {page_num} anchored at at {anchor} of ({x}, {y})"
+                  f" Delete all objects: {delete_all_objects}")
 
         # (x,y) is northwest point of image
         if delete_all_objects:
@@ -357,7 +358,7 @@ class PdfViewer(tk.Tk):
         # scrolling up gives positive multiples of 120
 
         if ALLOW_DEBUGGING:
-            print("Mouse wheel in canvas", event.delta)
+            print("\nMouse wheel in canvas", event.delta)
 
         # print("Canvas geo:", self._canvas.winfo_geometry(),
         #       "width:", self._canvas.winfo_width(),
