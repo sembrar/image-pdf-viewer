@@ -77,7 +77,7 @@ class PdfViewer(tk.Tk):
         tk.Tk.__init__(self)
         self.set_default_title()
 
-        self._settings = dict()
+        self._gui_settings = dict()
         self._loaded_images = dict()
         self._canvas_id_to_page_num = dict()
         self._annotations = dict()
@@ -148,7 +148,7 @@ class PdfViewer(tk.Tk):
         # in this widget, the event is being registered
 
         # if there is a previously opened book, open it
-        currently_opened_book = self._settings.get(CURRENTLY_OPENED_BOOK, None)
+        currently_opened_book = self._gui_settings.get(CURRENTLY_OPENED_BOOK, None)
         if currently_opened_book is not None and os.path.isdir(currently_opened_book):
             self._load_book(currently_opened_book)
 
@@ -177,20 +177,20 @@ class PdfViewer(tk.Tk):
         if ALLOW_DEBUGGING:
             print("Save GUI settings")
 
-        # there may already be some settings in self._settings like currently-opened-book etc
+        # there may already be some settings in self._gui_settings like currently-opened-book etc
         # here, we add some additional ones like state i.e. zoomed/normal, application geometry string
-        self._settings[KEY_SETTING_GUI_STATE] = self.state()
-        if self._settings[KEY_SETTING_GUI_STATE] == "zoomed":
+        self._gui_settings[KEY_SETTING_GUI_STATE] = self.state()
+        if self._gui_settings[KEY_SETTING_GUI_STATE] == "zoomed":
             # if zoomed, make it normal to get underlying geometry string
             self.state("normal")
-        self._settings[KEY_SETTING_GUI_GEOMETRY] = self.winfo_geometry()
+        self._gui_settings[KEY_SETTING_GUI_GEOMETRY] = self.winfo_geometry()
 
         if ALLOW_DEBUGGING:
-            print("GUI settings being saved:", self._settings)
+            print("GUI settings being saved:", self._gui_settings)
 
         try:
             with open(SETTINGS_FILE_PATH, 'w') as f:
-                f.write(json.dumps(self._settings, indent=2))
+                f.write(json.dumps(self._gui_settings, indent=2))
         except IOError:
             print("IOError while writing settings to", SETTINGS_FILE_PATH)
 
@@ -200,16 +200,16 @@ class PdfViewer(tk.Tk):
 
         try:
             with open(SETTINGS_FILE_PATH) as f:
-                self._settings = json.loads(f.read())  # type: dict
+                self._gui_settings = json.loads(f.read())  # type: dict
         except IOError:
             print(f'IOError while reading settings from "{SETTINGS_FILE_PATH}". The file may not exist yet.')
             return
 
         if ALLOW_DEBUGGING:
-            print("Loaded GUI settings:", self._settings)
+            print("Loaded GUI settings:", self._gui_settings)
 
-        self.geometry(newGeometry=self._settings.get(KEY_SETTING_GUI_GEOMETRY, None))
-        self.state(newstate=self._settings.get(KEY_SETTING_GUI_STATE, None))
+        self.geometry(newGeometry=self._gui_settings.get(KEY_SETTING_GUI_GEOMETRY, None))
+        self.state(newstate=self._gui_settings.get(KEY_SETTING_GUI_STATE, None))
 
     def _open_a_book(self, _event):
 
@@ -220,7 +220,7 @@ class PdfViewer(tk.Tk):
 
         # find the initial directory for ask directory dialog:
         # if a book is opened currently, use its parent directory as initial directory, else use the Drive letter
-        currently_opened_book = self._settings.get(CURRENTLY_OPENED_BOOK, None)
+        currently_opened_book = self._gui_settings.get(CURRENTLY_OPENED_BOOK, None)
         if currently_opened_book is not None:
             parent_dir_of_currently_opened_book = os.path.split(currently_opened_book)[0]
             if os.path.isdir(parent_dir_of_currently_opened_book):
@@ -238,7 +238,7 @@ class PdfViewer(tk.Tk):
         if ALLOW_DEBUGGING:
             print(f"Chosen folder {result} for open a book.")
 
-        self._settings[CURRENTLY_OPENED_BOOK] = result
+        self._gui_settings[CURRENTLY_OPENED_BOOK] = result
 
         self._load_book(result)
 
@@ -328,7 +328,7 @@ class PdfViewer(tk.Tk):
             if ALLOW_DEBUGGING:
                 print("This page has to be loaded")
 
-            page_png_image_path = get_page_path(self._settings[CURRENTLY_OPENED_BOOK], page_num)
+            page_png_image_path = get_page_path(self._gui_settings[CURRENTLY_OPENED_BOOK], page_num)
             # PIL needs lingering reference (otherwise, the image gets garbage collected and unavailable)
             self._loaded_images[page_num] = ImageTk.PhotoImage(Image.open(page_png_image_path))
 
