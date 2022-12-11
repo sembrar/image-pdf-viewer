@@ -6,6 +6,7 @@ from tkinter import ttk
 from tkinter import filedialog
 import json
 from PIL import Image, ImageTk
+from collections import namedtuple  # for sending a temp Event type objects with just required data members
 
 import ctypes
 
@@ -209,6 +210,10 @@ class PdfViewer(tk.Tk):
 
     def destroy(self):
         self._save_gui_settings()
+
+        # save annotations
+        self._save_annotations()
+
         tk.Tk.destroy(self)
 
     def _save_gui_settings(self):
@@ -337,6 +342,7 @@ class PdfViewer(tk.Tk):
                 print("Bookmarks file doesn't exist for this book:", get_bookmarks_file_path(metadata_folder))
 
             # read annotations
+            self._read_annotations()
 
         self._load_page(page_to_open)
 
@@ -348,6 +354,8 @@ class PdfViewer(tk.Tk):
 
         # (x,y) is northwest point of image
         if delete_all_objects:
+            for p in self._dict_page_num_to_image:
+                self._save_annotations_back_to_the_dict_for_page(p)
             self._canvas.delete(TAG_OBJECT)
             self._dict_page_num_to_image.clear()
             self._dict_canvas_id_to_page_num.clear()
@@ -389,17 +397,15 @@ class PdfViewer(tk.Tk):
             self._dict_canvas_id_to_page_num[img_id] = page_num
             self._dict_page_num_to_canvas_id[page_num] = img_id
 
+            self._draw_annotations_in_dict_on_to_canvas_for_page(page_num)
+
             # delete images on canvas that are far away
             # although this section can be moved out of the parent if block, it is kept here, the idea is,
             # delete things only when new things are added (otherwise, it's ok to keep things in memory)
             loaded_images_page_numbers = tuple(self._dict_page_num_to_image.keys())
             for p in loaded_images_page_numbers:
                 if abs(p - page_num) > NUM_PAGE_IMAGE_RANGE_TO_KEEP:
-                    self._canvas.delete(get_page_num_tag(p))
-                    print("Deleted page", p, "from canvas")
-                    self._dict_page_num_to_image.pop(p)
-                    del_img_id = self._dict_page_num_to_canvas_id.pop(p)
-                    self._dict_canvas_id_to_page_num.pop(del_img_id)
+                    self._delete_page_from_canvas(p)
 
     def _mouse_wheel_in_canvas(self, event):
         # try:
@@ -535,12 +541,36 @@ class PdfViewer(tk.Tk):
             print("Left click on canvas")
         canvas_x = self._canvas.canvasx(event.x)
         canvas_y = self._canvas.canvasy(event.y)
-        self._canvas.create_line(
+
+        # there should be an underlying page to add an arrow annotation
+        closest = self._canvas.find_closest(canvas_x, canvas_y)  # either empty, or a singleton with closest object id
+        if len(closest) == 0:
+            if ALLOW_DEBUGGING:
+                print("No page exists at this position, so, annotation can't be added")
+            return
+
+        obj_id = closest[0]
+        tags_of_this_object = self._canvas.gettags(obj_id)
+        print(obj_id, tags_of_this_object)
+        if TAG_PAGE_IMAGE not in tags_of_this_object:
+            if ALLOW_DEBUGGING:
+                print("The underlying object is not a page image. So, annotation can't be added")
+            return
+
+        page_num_tag = None
+        for t in tags_of_this_object:
+            if str.startswith(t, PREFIX_TAG_PAGE_NUM):
+                page_num_tag = t
+                break
+
+        annotation_id = self._canvas.create_line(
             canvas_x, canvas_y, canvas_x - ANNOTATION_ARROW_LENGTH, canvas_y,
             arrow=tk.FIRST, arrowshape=ANNOTATION_ARROW_SHAPE,
             fill=ANNOTATION_ARROW_COLOR, width=ANNOTATION_ARROW_WIDTH,
-            tags=(TAG_OBJECT, TAG_ANNOTATION, TAG_ARROW)
+            tags=(TAG_OBJECT, TAG_ANNOTATION, TAG_ARROW, page_num_tag)
         )
+        if ALLOW_DEBUGGING:
+            print("Arrow annotation added with id:", annotation_id, "tags:", self._canvas.gettags(annotation_id))
 
     def _right_click_on_canvas(self, event):
         if ALLOW_DEBUGGING:
@@ -560,6 +590,107 @@ class PdfViewer(tk.Tk):
             self._canvas.delete(obj_id)
             if ALLOW_DEBUGGING:
                 print("Deleted the annotation")
+
+    def _delete_page_from_canvas(self, page_num):
+        if ALLOW_DEBUGGING:
+            print("Delete page", page_num, "from canvas")
+
+        self._save_annotations_back_to_the_dict_for_page(page_num)
+
+        page_obj_id = self._dict_page_num_to_canvas_id[page_num]
+
+        self._canvas.delete(page_obj_id)
+        self._dict_page_num_to_image.pop(page_num)
+        self._dict_page_num_to_canvas_id.pop(page_num)
+        self._dict_canvas_id_to_page_num.pop(page_obj_id)
+
+    def _save_annotations_back_to_the_dict_for_page(self, page_num):
+        if ALLOW_DEBUGGING:
+            print("Save annotations back to the dict for page", page_num)
+
+        # requires that the page still be present on canvas
+        objects_with_page_num_tag = self._canvas.find_withtag(get_page_num_tag(page_num))
+
+        if ALLOW_DEBUGGING:
+            print(len(objects_with_page_num_tag), "objects found for this page")
+
+        self._annotations[str(page_num)] = []  # string key because, this is saved to a json file, and,
+        # json converts int keys to string keys while saving
+        page_bbox = None  # page bbox is used to store the annotations by relative position to the page
+
+        for o in objects_with_page_num_tag:
+            tags = self._canvas.gettags(o)
+            bbox = self._canvas.bbox(o)
+
+            if ALLOW_DEBUGGING:
+                print("Object with id:", o, "Tags:", tags, "Bbox:", bbox)
+
+            if TAG_ARROW in tags:
+                x1, y1, x2, y2 = bbox
+                self._annotations[str(page_num)].append([x2, (y1 + y2) // 2, TAG_ARROW])
+            elif TAG_PAGE_IMAGE in tags:  # this is the page
+                page_bbox = bbox
+
+        # make all x and y relative to the page
+        if page_bbox is None:
+            print("Error: In save annotations back to the dict for page", page_num, "no page image exists on canvas")
+            return
+        x1, y1, x2, y2 = page_bbox
+        for i in range(len(self._annotations[str(page_num)])):
+            x, y = self._annotations[str(page_num)][i][:2]
+            self._annotations[str(page_num)][i][0] = x - x1
+            self._annotations[str(page_num)][i][1] = y - y1
+
+    def _draw_annotations_in_dict_on_to_canvas_for_page(self, page_num):
+        if ALLOW_DEBUGGING:
+            print("Draw annotations in dict on to canvas for page")
+
+        if str(page_num) not in self._annotations:
+            if ALLOW_DEBUGGING:
+                print("No annotations exist for page", page_num)
+            return
+
+        page_obj = self._dict_page_num_to_canvas_id[page_num]
+        page_bbox = self._canvas.bbox(page_obj)
+        x1, y1, x2, y2 = page_bbox
+
+        for a in self._annotations[str(page_num)]:
+            dx, dy = a[:2]
+            ann_type = a[2]
+            if ann_type == TAG_ARROW:
+                self._left_click_on_canvas(namedtuple("tempEvent", ["x", "y"])(x1 + dx, y1 + dy))
+
+    def _save_annotations(self):
+        if ALLOW_DEBUGGING:
+            print("Save annotations")
+
+        # first, save annotations of page images being displayed on canvas back to dict
+        for p in self._dict_page_num_to_image:
+            self._save_annotations_back_to_the_dict_for_page(p)
+
+        metadata_folder = get_metadata_folder(self._gui_settings[CURRENTLY_OPENED_BOOK])
+        annotations_file_path = get_annotations_file_path(metadata_folder)
+        try:
+            with open(annotations_file_path, 'w') as f:
+                f.write(json.dumps(self._annotations))
+        except IOError:
+            print("Couldn't write to annotations file:", annotations_file_path)
+
+    def _read_annotations(self):
+        if ALLOW_DEBUGGING:
+            print("Read annotations")
+
+        metadata_folder = get_metadata_folder(self._gui_settings[CURRENTLY_OPENED_BOOK])
+        annotations_file_path = get_annotations_file_path(metadata_folder)
+        try:
+            with open(annotations_file_path) as f:
+                self._annotations = json.loads(f.read())
+            if ALLOW_DEBUGGING:
+                print("Annotations:", self._annotations)
+        except IOError:
+            print("Couldn't write to annotations file:", annotations_file_path)
+        except json.JSONDecodeError:
+            print("Bad json in", annotations_file_path)
 
 
 def main():
