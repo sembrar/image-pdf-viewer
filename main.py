@@ -46,6 +46,34 @@ PIXELS_BETWEEN_PAGES = 20
 NUM_PAGE_IMAGE_RANGE_TO_KEEP = 3  # this means from current page num +-3 are kept
 
 
+_COLOR_LAVENDER = "#e6e6fa"
+_COLOR_TEAL = "#008080"
+_COLOR_CHERRY_RED = "#d2042d"
+_COLOR_WHITE = "#ffffff"
+_COLOR_LIGHT_BLUE = "#add8e6"
+_COLOR_DARK_BLUE = "#00008b"
+_COLOR_SKY_BLUE = "#87ceeb"
+
+
+ANNOTATION_ARROW_COLOR = _COLOR_CHERRY_RED
+ANNOTATION_ARROW_LENGTH = 100  # pixels
+ANNOTATION_ARROW_WIDTH = 3
+ANNOTATION_ARROW_SHAPE = (8, 10, 3)  # see the shape explanation below
+TAG_ANNOTATION = "ann"
+TAG_ARROW = "arr"
+"""
+arrow shape: (d1, d2, d3)
+The following arrow is pointing to right (like -->)
+         |
+-------------
+         |
+d1 is the horizontal part of the arrow tip
+d2 is the diagonal part of the arrow tip (not drawn above: imagine a digonal line )
+d3 is the vertical part of the arrow tip
+tkinter's default is (8, 10, 3)
+"""
+
+
 # some helper functions
 
 
@@ -150,6 +178,9 @@ class PdfViewer(tk.Tk):
         self._canvas.bind("<MouseWheel>", self._mouse_wheel_in_canvas)
         # this is working as expected to work, i.e. even though focus is in some other widget, if mouse is scrolled
         # in this widget, the event is being registered
+
+        self._canvas.bind("<Button-1>", self._left_click_on_canvas)
+        self._canvas.bind("<Button-3>", self._right_click_on_canvas)
 
         self._text_bookmarks.tag_config(TAG_BOOKMARK, foreground="green")
         self._text_bookmarks.tag_bind(TAG_BOOKMARK, "<Button-1>", self._click_on_a_bookmark)
@@ -498,6 +529,37 @@ class PdfViewer(tk.Tk):
             print("Page num:", page_num)
 
         self._load_page(page_num)
+
+    def _left_click_on_canvas(self, event):
+        if ALLOW_DEBUGGING:
+            print("Left click on canvas")
+        canvas_x = self._canvas.canvasx(event.x)
+        canvas_y = self._canvas.canvasy(event.y)
+        self._canvas.create_line(
+            canvas_x, canvas_y, canvas_x - ANNOTATION_ARROW_LENGTH, canvas_y,
+            arrow=tk.FIRST, arrowshape=ANNOTATION_ARROW_SHAPE,
+            fill=ANNOTATION_ARROW_COLOR, width=ANNOTATION_ARROW_WIDTH,
+            tags=(TAG_OBJECT, TAG_ANNOTATION, TAG_ARROW)
+        )
+
+    def _right_click_on_canvas(self, event):
+        if ALLOW_DEBUGGING:
+            print("Right click on canvas")
+        canvas_x = self._canvas.canvasx(event.x)
+        canvas_y = self._canvas.canvasy(event.y)
+        closest = self._canvas.find_closest(canvas_x, canvas_y)
+        if len(closest) == 0:
+            if ALLOW_DEBUGGING:
+                print("No close objects at this point")
+            return
+        obj_id = closest[0]  # closest is a singleton list, containing the id of an object on the canvas
+        if ALLOW_DEBUGGING:
+            print(f"Found object with {obj_id} near ({canvas_x}, {canvas_y})"
+                  f" with tags {self._canvas.gettags(obj_id)}")
+        if TAG_ANNOTATION in self._canvas.gettags(obj_id):
+            self._canvas.delete(obj_id)
+            if ALLOW_DEBUGGING:
+                print("Deleted the annotation")
 
 
 def main():
