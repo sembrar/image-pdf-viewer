@@ -38,6 +38,8 @@ TAG_OBJECT = "obj"
 TAG_PAGE_IMAGE = "pg-img"
 PREFIX_TAG_PAGE_NUM = "pg-num"  # this is used in tag.startswith, so, this must be unique prefix
 
+TAG_BOOKMARK = "bm"
+
 
 NUM_PIXELS_TO_SCROLL = 40
 PIXELS_BETWEEN_PAGES = 20
@@ -148,6 +150,9 @@ class PdfViewer(tk.Tk):
         self._canvas.bind("<MouseWheel>", self._mouse_wheel_in_canvas)
         # this is working as expected to work, i.e. even though focus is in some other widget, if mouse is scrolled
         # in this widget, the event is being registered
+
+        self._text_bookmarks.tag_config(TAG_BOOKMARK, foreground="green")
+        self._text_bookmarks.tag_bind(TAG_BOOKMARK, "<Button-1>", self._click_on_a_bookmark)
 
         # if there is a previously opened book, open it
         currently_opened_book = self._gui_settings.get(CURRENTLY_OPENED_BOOK, None)
@@ -290,7 +295,13 @@ class PdfViewer(tk.Tk):
             try:
                 with open(get_bookmarks_file_path(metadata_folder)) as f:
                     bookmarks = json.loads(f.read())
-                self._text_bookmarks.insert("1.0", "\n".join(map(lambda x: f"{' ' * x[0]} {x[1]}  {x[2]}", bookmarks)))
+                for (indent, title, page_num) in bookmarks:
+                    self._text_bookmarks.insert(tk.END, " " * indent, ())  # empty tuple as tags because,
+                    # if not given, then tags at preceding/succeeding characters may be taken
+                    self._text_bookmarks.insert(tk.END, title, (TAG_BOOKMARK,))  # note, tuple required for tags even
+                    # when there is only one tag, because, for Text widget, if string is given, each individual letter
+                    # will be applied as a separate tag
+                    self._text_bookmarks.insert(tk.END, f"  {page_num}\n", ())
             except IOError:
                 print("Bookmarks file doesn't exist for this book:", get_bookmarks_file_path(metadata_folder))
 
@@ -469,6 +480,24 @@ class PdfViewer(tk.Tk):
             else:
                 if ALLOW_DEBUGGING:
                     print("Page hasn't scrolled down enough to reveal previous page")
+
+    def _click_on_a_bookmark(self, _):
+        bookmark_clicked = self._text_bookmarks.get("current linestart", "current lineend")
+        if ALLOW_DEBUGGING:
+            print("Clicked bookmark:", bookmark_clicked)
+
+        try:
+            page_num = int(str.rsplit(bookmark_clicked, " ", 1)[-1])
+            # max-split argument in the above call to rsplit is 1, it means only one breaking point i.e.
+            # the whole string is split into two parts at first space character from the right
+        except ValueError:
+            print("The page number extracted is not a valid integer")
+            return
+
+        if ALLOW_DEBUGGING:
+            print("Page num:", page_num)
+
+        self._load_page(page_num)
 
 
 def main():
