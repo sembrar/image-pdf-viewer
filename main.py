@@ -31,6 +31,15 @@ KEY_CURRENT_OPENED_PAGE_NUM = "current-opened-page-num"
 
 TAG_OBJECT = "obj"
 TAG_PAGE_IMAGE = "pg-img"
+PREFIX_TAG_PAGE_NUM = "pg-num"  # this is used in tag.startswith, so, this must be unique prefix
+
+
+NUM_PIXELS_TO_SCROLL = 40
+PIXELS_BETWEEN_PAGES = 20
+NUM_PAGE_IMAGE_RANGE_TO_KEEP = 3  # this means from current page num +-3 are kept
+
+
+# some helper functions
 
 
 def get_metadata_folder(book_folder):
@@ -53,6 +62,10 @@ def get_page_path(book_folder, page_num):
     return os.path.join(book_folder, f'{str(page_num).rjust(6, "0")}.png')
 
 
+def get_page_num_tag(page_num):
+    return f"{PREFIX_TAG_PAGE_NUM}-{page_num}"
+
+
 class PdfViewer(tk.Tk):
 
     def __init__(self):
@@ -61,6 +74,7 @@ class PdfViewer(tk.Tk):
 
         self._settings = dict()
         self._loaded_images = dict()
+        self._canvas_id_to_page_num = dict()
         self._annotations = dict()
 
         # a frame for bookmarks
@@ -124,6 +138,15 @@ class PdfViewer(tk.Tk):
         # The event handler itself will return the string "break" so that the text widget doesn't get characters into it
         # This is working irrespective of whether this binding is done before the binding of hot keys above, or after
 
+        self._canvas.bind("<MouseWheel>", self._mouse_wheel_in_canvas)
+        # this is working as expected to work, i.e. even though focus is in some other widget, if mouse is scrolled
+        # in this widget, the event is being registered
+
+        # if there is a previously opened book, open it
+        currently_opened_book = self._settings.get(CURRENTLY_OPENED_BOOK, None)
+        if currently_opened_book is not None and os.path.isdir(currently_opened_book):
+            self._load_book(currently_opened_book)
+
     def set_default_title(self):
         self.title("PdfViewer")
 
@@ -183,7 +206,7 @@ class PdfViewer(tk.Tk):
                 initial_dir_for_ask_dir_dialog = parent_dir_of_currently_opened_book
 
         if initial_dir_for_ask_dir_dialog is None:  # if it is still None, use the drive letter
-            initial_dir_for_file_dialog = os.path.splitdrive(sys.argv[0])[0]
+            initial_dir_for_ask_dir_dialog = os.path.splitdrive(sys.argv[0])[0]
 
         result = filedialog.askdirectory(initialdir=initial_dir_for_ask_dir_dialog)
         if result == "":
@@ -243,15 +266,110 @@ class PdfViewer(tk.Tk):
 
         self._load_page(page_to_open)
 
-    def _load_page(self, page_num):
-        self._canvas.delete(TAG_OBJECT)
-        self._loaded_images.clear()
+    def _load_page(self, page_num, delete_all_objects=True, x=2, y=2):
+        # (x,y) is northwest point of image
+        if delete_all_objects:
+            self._canvas.delete(TAG_OBJECT)
+            self._loaded_images.clear()
+            self._canvas_id_to_page_num.clear()
+            # todo see if all required items are cleared
 
-        page_png_image_path = get_page_path(self._settings[CURRENTLY_OPENED_BOOK], page_num)
-        self._loaded_images[page_num] = ImageTk.PhotoImage(Image.open(page_png_image_path))
+        tag_for_this_page_num = get_page_num_tag(page_num)
 
-        self._canvas.create_image(2, 2, anchor="nw", image=self._loaded_images[page_num],
-                                  tags=(TAG_OBJECT, TAG_PAGE_IMAGE))
+        if page_num in self._loaded_images:
+            self.update_idletasks()
+            print(f"Page-{page_num} was already loaded. Just scrolling to that page")
+            print(self._canvas.bbox(tag_for_this_page_num))
+            _, y1, _, _ = self._canvas.bbox(tag_for_this_page_num)
+            dy = y - y1
+            self._canvas.move(TAG_OBJECT, 0, dy)
+            print(self._canvas.bbox(tag_for_this_page_num))
+        else:
+            page_png_image_path = get_page_path(self._settings[CURRENTLY_OPENED_BOOK], page_num)
+            # PIL needs lingering reference
+            self._loaded_images[page_num] = ImageTk.PhotoImage(Image.open(page_png_image_path))
+
+            img_id = self._canvas.create_image(x, y, anchor="nw", image=self._loaded_images[page_num],
+                                               tags=(TAG_OBJECT, TAG_PAGE_IMAGE, tag_for_this_page_num))
+            self._canvas_id_to_page_num[img_id] = page_num
+
+            # delete images on canvas that are far away todo
+            # loaded_images_page_numbers = tuple(self._loaded_images.keys())
+            # for p in loaded_images_page_numbers:
+            #     if abs(p - page_num) > NUM_PAGE_IMAGE_RANGE_TO_KEEP:
+            #         self._canvas.delete(get_page_num_tag(p))
+            #         print("Deleted page", p, "from canvas")
+            #         self._loaded_images.pop(p)
+            #         self._canvas_id_to_page_num
+
+    def _mouse_wheel_in_canvas(self, event):
+        # try:
+        #     self._i += 1
+        # except AttributeError:
+        #     self._i = 0
+        # print("Mouse wheel in canvas", self._i, event.delta)
+        # scrolling down gives negative multiples of 120
+        # scrolling up gives positive multiples of 120
+
+        # print("Canvas geo:", self._canvas.winfo_geometry(),
+        #       "width:", self._canvas.winfo_width(),
+        #       "height:", self._canvas.winfo_height(),
+        #       "Root geo:", self.winfo_toplevel().winfo_geometry())
+        # canvas's winfo_width and height are giving correct values along with canvas' geo string
+
+        canvas_width = self._canvas.winfo_width()
+        canvas_height = self._canvas.winfo_height()
+
+        scroll_amount = (event.delta // 120) * NUM_PIXELS_TO_SCROLL
+
+        objects_in_scroll_distance = self._canvas.find_overlapping(
+            0, -scroll_amount, canvas_width, canvas_height - scroll_amount)
+        # note: using +scroll_amount above is causing a bug:
+        # which is, after scrolling the page, and it fully goes beyond top boundary, it is not coming back,
+        # the same bug is also caused if we used 0 in the place of scroll_amount above i.e. visible screen
+        print("Objects in scroll distance:", objects_in_scroll_distance)
+
+        for v in objects_in_scroll_distance:
+            print("Id:", v, "Tags:", self._canvas.gettags(v), self._canvas.bbox(v))
+
+        if len(objects_in_scroll_distance) > 0:
+            self._canvas.move(TAG_OBJECT, 0, scroll_amount)
+
+        # find the page that is being shown at the bottom most
+        page_to_consider = None  # if scrolling up, consider page at the top most, if scrolling down, the bottom most
+        page_obj = None
+        for v in objects_in_scroll_distance:
+            page_num = self._canvas_id_to_page_num.get(v, None)
+            if page_num is None:  # this canvas object isn't a page image
+                continue
+
+            if page_to_consider is None:
+                page_to_consider = page_num
+                page_obj = v
+                continue
+
+            if event.delta < 0:  # scrolling down
+                if page_num > page_to_consider:
+                    page_to_consider = page_num
+                    page_obj = v
+            else:
+                if page_num < page_to_consider:
+                    page_to_consider = page_num
+                    page_obj = v
+
+        print("Page to consider:", page_to_consider, "Page object:", page_obj)
+
+        if page_to_consider is None:
+            return
+
+        if event.delta < 0:  # scrolling down
+            _, _, _, y2 = self._canvas.bbox(page_obj)
+            print(y2)
+            if y2 < canvas_height - PIXELS_BETWEEN_PAGES:
+                print("Page scrolled up. Show next page")
+                self._load_page(page_to_consider + 1, delete_all_objects=False, y=y2 + PIXELS_BETWEEN_PAGES)
+        else:  # scrolling up
+            pass
 
 
 def main():
