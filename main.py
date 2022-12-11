@@ -335,6 +335,10 @@ class PdfViewer(tk.Tk):
                 print("This page has to be loaded")
 
             page_png_image_path = get_page_path(self._gui_settings[CURRENTLY_OPENED_BOOK], page_num)
+            if not os.path.isfile(page_png_image_path):
+                print("There is no page with number:", page_num)
+                return
+
             # PIL needs lingering reference (otherwise, the image gets garbage collected and unavailable)
             self._dict_page_num_to_image[page_num] = ImageTk.PhotoImage(Image.open(page_png_image_path))
 
@@ -432,14 +436,39 @@ class PdfViewer(tk.Tk):
 
             if y2 < canvas_height - PIXELS_BETWEEN_PAGES:
                 if ALLOW_DEBUGGING:
-                    print("Page scrolled up. Show next page")
+                    print("Page scrolled up. Show next page i.e. Page", page_to_consider + 1)
+                    print("Existing pages on canvas:")
+                    for p in sorted(self._dict_page_num_to_canvas_id.keys()):
+                        canvas_id = self._dict_page_num_to_canvas_id[p]
+                        print(f"Page-{p}:"
+                              f" Tags: {self._canvas.gettags(canvas_id)}"
+                              f" Bbox: {self._canvas.bbox(canvas_id)}")
+
                 self._load_page(page_to_consider + 1, delete_all_objects=False, y=y2 + PIXELS_BETWEEN_PAGES)
             else:
                 if ALLOW_DEBUGGING:
                     print("Page hasn't scrolled up enough to reveal next page")
 
-        else:  # scrolling up
-            pass
+        else:  # scrolling up  (event.delta > 0)
+            _, y1, _, _ = self._canvas.bbox(page_obj)
+
+            if ALLOW_DEBUGGING:
+                print("The top most y coordinate of the page:", y1)
+
+            if y1 > PIXELS_BETWEEN_PAGES:
+                if ALLOW_DEBUGGING:
+                    print("Page scrolled down. Show previous page i.e. Page", page_to_consider - 1)
+                    print("Existing pages on canvas:")
+                    for p in sorted(self._dict_page_num_to_canvas_id.keys()):
+                        canvas_id = self._dict_page_num_to_canvas_id[p]
+                        print(f"Page-{p}:"
+                              f" Tags: {self._canvas.gettags(canvas_id)}"
+                              f" Bbox: {self._canvas.bbox(canvas_id)}")
+                self._load_page(page_to_consider - 1, delete_all_objects=False, y=y1 - PIXELS_BETWEEN_PAGES,
+                                anchor="sw")
+            else:
+                if ALLOW_DEBUGGING:
+                    print("Page hasn't scrolled down enough to reveal previous page")
 
 
 def main():
