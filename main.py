@@ -12,6 +12,9 @@ import ctypes
 ctypes.windll.shcore.SetProcessDpiAwareness(1)  # do this once before starting the GUI to fix blurring in 1080p screens
 
 
+ALLOW_DEBUGGING = True
+
+
 DEFAULT_BOOKMARKS_TEXT_WIDTH = 40  # It is num chars. Also, height isn't required because it will expand vertically
 
 _FOLDER_OF_THIS_PYTHON_FILE = os.path.split(sys.argv[0])[0]  # sys.argv[0] is the rel path to the file being run
@@ -24,7 +27,9 @@ CURRENTLY_OPENED_BOOK = "currently-opened-book"
 
 KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS = set()
 KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS.update(map(lambda x: f"F{x}", range(1, 12+1)))  # function keys
-print("Keys that will be further processed in text bookmarks:", KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS)
+if ALLOW_DEBUGGING:
+    print("Keys that will be further processed in text bookmarks:",
+          KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS)
 
 
 KEY_CURRENT_OPENED_PAGE_NUM = "current-opened-page-num"
@@ -148,6 +153,8 @@ class PdfViewer(tk.Tk):
             self._load_book(currently_opened_book)
 
     def set_default_title(self):
+        if ALLOW_DEBUGGING:
+            print("Set default title")
         self.title("PdfViewer")
 
     def _left_click_on_size_grip_like_frame(self, event):
@@ -167,15 +174,19 @@ class PdfViewer(tk.Tk):
         tk.Tk.destroy(self)
 
     def _save_gui_settings(self):
+        if ALLOW_DEBUGGING:
+            print("Save GUI settings")
+
+        # there may already be some settings in self._settings like currently-opened-book etc
+        # here, we add some additional ones like state i.e. zoomed/normal, application geometry string
         self._settings[KEY_SETTING_GUI_STATE] = self.state()
         if self._settings[KEY_SETTING_GUI_STATE] == "zoomed":
             # if zoomed, make it normal to get underlying geometry string
             self.state("normal")
         self._settings[KEY_SETTING_GUI_GEOMETRY] = self.winfo_geometry()
 
-        # todo save which book is opened
-
-        print(self._settings)
+        if ALLOW_DEBUGGING:
+            print("GUI settings being saved:", self._settings)
 
         try:
             with open(SETTINGS_FILE_PATH, 'w') as f:
@@ -184,16 +195,26 @@ class PdfViewer(tk.Tk):
             print("IOError while writing settings to", SETTINGS_FILE_PATH)
 
     def _load_gui_settings(self):
+        if ALLOW_DEBUGGING:
+            print("Load GUI settings")
+
         try:
             with open(SETTINGS_FILE_PATH) as f:
                 self._settings = json.loads(f.read())  # type: dict
         except IOError:
             print(f'IOError while reading settings from "{SETTINGS_FILE_PATH}". The file may not exist yet.')
             return
+
+        if ALLOW_DEBUGGING:
+            print("Loaded GUI settings:", self._settings)
+
         self.geometry(newGeometry=self._settings.get(KEY_SETTING_GUI_GEOMETRY, None))
         self.state(newstate=self._settings.get(KEY_SETTING_GUI_STATE, None))
 
     def _open_a_book(self, _event):
+
+        if ALLOW_DEBUGGING:
+            print("Open a book")
 
         initial_dir_for_ask_dir_dialog = None
 
@@ -210,22 +231,28 @@ class PdfViewer(tk.Tk):
 
         result = filedialog.askdirectory(initialdir=initial_dir_for_ask_dir_dialog)
         if result == "":
-            print("Open a book cancelled")
+            if ALLOW_DEBUGGING:
+                print("Open a book cancelled")
             return
 
-        print(f"Chosen folder {result} for open a book.")
+        if ALLOW_DEBUGGING:
+            print(f"Chosen folder {result} for open a book.")
 
         self._settings[CURRENTLY_OPENED_BOOK] = result
 
         self._load_book(result)
 
+    # this function should provide a list of recently opened books to choose from quickly
     def _open_a_recent_book(self, event):
         return
 
     def _key_press_in_text_bookmarks(self, event):
-        print("Key press in text bookmarks:", event.keysym)
+        if ALLOW_DEBUGGING:
+            print("Key press in text bookmarks:", event.keysym)
+
         try:
             # if there is any hot key binding to this key, do it
+            # todo disallow running hot key binding if unnecessary modifiers are there like shift, control etc
             self._hot_key_bindings[event.keysym](event)
         except KeyError:
             pass
@@ -239,6 +266,9 @@ class PdfViewer(tk.Tk):
         return "break"  # makes the text bookmark readonly by disallowing further processing of the event
 
     def _load_book(self, book_directory):
+        if ALLOW_DEBUGGING:
+            print("Load book", book_directory)
+
         metadata_folder = get_metadata_folder(book_directory)
 
         page_to_open = 1
@@ -266,7 +296,11 @@ class PdfViewer(tk.Tk):
 
         self._load_page(page_to_open)
 
-    def _load_page(self, page_num, delete_all_objects=True, x=2, y=2):
+    def _load_page(self, page_num, delete_all_objects=True, x=2, y=2, anchor="nw"):
+
+        if ALLOW_DEBUGGING:
+            print(f"Load page {page_num} anchored at at {anchor} of ({x}, {y}) Delete all objects:{delete_all_objects}")
+
         # (x,y) is northwest point of image
         if delete_all_objects:
             self._canvas.delete(TAG_OBJECT)
@@ -277,23 +311,34 @@ class PdfViewer(tk.Tk):
         tag_for_this_page_num = get_page_num_tag(page_num)
 
         if page_num in self._loaded_images:
-            self.update_idletasks()
-            print(f"Page-{page_num} was already loaded. Just scrolling to that page")
-            print(self._canvas.bbox(tag_for_this_page_num))
+
+            if ALLOW_DEBUGGING:
+                print(f"Page-{page_num} was already loaded. Just scrolling to that page")
+                print("It's bbox:", self._canvas.bbox(tag_for_this_page_num))
+
             _, y1, _, _ = self._canvas.bbox(tag_for_this_page_num)
             dy = y - y1
-            self._canvas.move(TAG_OBJECT, 0, dy)
-            print(self._canvas.bbox(tag_for_this_page_num))
+            self._canvas.move(TAG_OBJECT, 0, dy)  # move all canvas objects by that amount
+
+            if ALLOW_DEBUGGING:
+                print("It's new bbox:", self._canvas.bbox(tag_for_this_page_num))
+
         else:
+
+            if ALLOW_DEBUGGING:
+                print("This page has to be loaded")
+
             page_png_image_path = get_page_path(self._settings[CURRENTLY_OPENED_BOOK], page_num)
-            # PIL needs lingering reference
+            # PIL needs lingering reference (otherwise, the image gets garbage collected and unavailable)
             self._loaded_images[page_num] = ImageTk.PhotoImage(Image.open(page_png_image_path))
 
-            img_id = self._canvas.create_image(x, y, anchor="nw", image=self._loaded_images[page_num],
+            img_id = self._canvas.create_image(x, y, anchor=anchor, image=self._loaded_images[page_num],
                                                tags=(TAG_OBJECT, TAG_PAGE_IMAGE, tag_for_this_page_num))
             self._canvas_id_to_page_num[img_id] = page_num
 
             # delete images on canvas that are far away todo
+            # although this section can be moved out of the parent if block, it is kept here, the idea is
+            # delete things only when new things are added (otherwise, it's ok to keep things in memory)
             # loaded_images_page_numbers = tuple(self._loaded_images.keys())
             # for p in loaded_images_page_numbers:
             #     if abs(p - page_num) > NUM_PAGE_IMAGE_RANGE_TO_KEEP:
@@ -311,6 +356,9 @@ class PdfViewer(tk.Tk):
         # scrolling down gives negative multiples of 120
         # scrolling up gives positive multiples of 120
 
+        if ALLOW_DEBUGGING:
+            print("Mouse wheel in canvas", event.delta)
+
         # print("Canvas geo:", self._canvas.winfo_geometry(),
         #       "width:", self._canvas.winfo_width(),
         #       "height:", self._canvas.winfo_height(),
@@ -320,6 +368,9 @@ class PdfViewer(tk.Tk):
         canvas_width = self._canvas.winfo_width()
         canvas_height = self._canvas.winfo_height()
 
+        if ALLOW_DEBUGGING:
+            print("Canvas width:", canvas_width, "Canvas height:", canvas_height)
+
         scroll_amount = (event.delta // 120) * NUM_PIXELS_TO_SCROLL
 
         objects_in_scroll_distance = self._canvas.find_overlapping(
@@ -327,16 +378,18 @@ class PdfViewer(tk.Tk):
         # note: using +scroll_amount above is causing a bug:
         # which is, after scrolling the page, and it fully goes beyond top boundary, it is not coming back,
         # the same bug is also caused if we used 0 in the place of scroll_amount above i.e. visible screen
-        print("Objects in scroll distance:", objects_in_scroll_distance)
 
-        for v in objects_in_scroll_distance:
-            print("Id:", v, "Tags:", self._canvas.gettags(v), self._canvas.bbox(v))
+        if ALLOW_DEBUGGING:
+            print("Objects in scroll distance:", objects_in_scroll_distance)
+            for v in objects_in_scroll_distance:
+                print("Id:", v, "Tags:", self._canvas.gettags(v), "Bbox:", self._canvas.bbox(v))
 
         if len(objects_in_scroll_distance) > 0:
-            self._canvas.move(TAG_OBJECT, 0, scroll_amount)
+            self._canvas.move(TAG_OBJECT, 0, scroll_amount)  # move all objects on canvas
 
-        # find the page that is being shown at the bottom most
-        page_to_consider = None  # if scrolling up, consider page at the top most, if scrolling down, the bottom most
+        # now, if a page is going beyond boundaries, then next / previous page has to be shown for continuous scroll
+        # if scrolling up, consider page at the top most (of the screen), if scrolling down, the bottom most
+        page_to_consider = None
         page_obj = None
         for v in objects_in_scroll_distance:
             page_num = self._canvas_id_to_page_num.get(v, None)
@@ -357,17 +410,26 @@ class PdfViewer(tk.Tk):
                     page_to_consider = page_num
                     page_obj = v
 
-        print("Page to consider:", page_to_consider, "Page object:", page_obj)
+        if ALLOW_DEBUGGING:
+            print("For showing next/previous page: Page to consider:", page_to_consider, "Page object:", page_obj)
 
         if page_to_consider is None:
             return
 
         if event.delta < 0:  # scrolling down
             _, _, _, y2 = self._canvas.bbox(page_obj)
-            print(y2)
+
+            if ALLOW_DEBUGGING:
+                print("The bottom most y coordinate of the page:", y2)
+
             if y2 < canvas_height - PIXELS_BETWEEN_PAGES:
-                print("Page scrolled up. Show next page")
+                if ALLOW_DEBUGGING:
+                    print("Page scrolled up. Show next page")
                 self._load_page(page_to_consider + 1, delete_all_objects=False, y=y2 + PIXELS_BETWEEN_PAGES)
+            else:
+                if ALLOW_DEBUGGING:
+                    print("Page hasn't scrolled up enough to reveal next page")
+
         else:  # scrolling up
             pass
 
