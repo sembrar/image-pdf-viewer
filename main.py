@@ -78,8 +78,10 @@ class PdfViewer(tk.Tk):
         self.set_default_title()
 
         self._gui_settings = dict()
-        self._loaded_images = dict()
-        self._canvas_id_to_page_num = dict()
+
+        self._dict_page_num_to_image = dict()
+        self._dict_canvas_id_to_page_num = dict()
+        self._dict_page_num_to_canvas_id = dict()
         self._annotations = dict()
 
         # a frame for bookmarks
@@ -305,13 +307,16 @@ class PdfViewer(tk.Tk):
         # (x,y) is northwest point of image
         if delete_all_objects:
             self._canvas.delete(TAG_OBJECT)
-            self._loaded_images.clear()
-            self._canvas_id_to_page_num.clear()
+            self._dict_page_num_to_image.clear()
+            self._dict_canvas_id_to_page_num.clear()
+            self._dict_page_num_to_canvas_id.clear()
             # todo see if all required items are cleared
 
         tag_for_this_page_num = get_page_num_tag(page_num)
+        # adding the above tag is necessary
+        # reason: all the annotations that belong to a page can be removed along with the page
 
-        if page_num in self._loaded_images:
+        if page_num in self._dict_page_num_to_image:
 
             if ALLOW_DEBUGGING:
                 print(f"Page-{page_num} was already loaded. Just scrolling to that page")
@@ -331,22 +336,24 @@ class PdfViewer(tk.Tk):
 
             page_png_image_path = get_page_path(self._gui_settings[CURRENTLY_OPENED_BOOK], page_num)
             # PIL needs lingering reference (otherwise, the image gets garbage collected and unavailable)
-            self._loaded_images[page_num] = ImageTk.PhotoImage(Image.open(page_png_image_path))
+            self._dict_page_num_to_image[page_num] = ImageTk.PhotoImage(Image.open(page_png_image_path))
 
-            img_id = self._canvas.create_image(x, y, anchor=anchor, image=self._loaded_images[page_num],
+            img_id = self._canvas.create_image(x, y, anchor=anchor, image=self._dict_page_num_to_image[page_num],
                                                tags=(TAG_OBJECT, TAG_PAGE_IMAGE, tag_for_this_page_num))
-            self._canvas_id_to_page_num[img_id] = page_num
+            self._dict_canvas_id_to_page_num[img_id] = page_num
+            self._dict_page_num_to_canvas_id[page_num] = img_id
 
-            # delete images on canvas that are far away todo
-            # although this section can be moved out of the parent if block, it is kept here, the idea is
+            # delete images on canvas that are far away
+            # although this section can be moved out of the parent if block, it is kept here, the idea is,
             # delete things only when new things are added (otherwise, it's ok to keep things in memory)
-            # loaded_images_page_numbers = tuple(self._loaded_images.keys())
-            # for p in loaded_images_page_numbers:
-            #     if abs(p - page_num) > NUM_PAGE_IMAGE_RANGE_TO_KEEP:
-            #         self._canvas.delete(get_page_num_tag(p))
-            #         print("Deleted page", p, "from canvas")
-            #         self._loaded_images.pop(p)
-            #         self._canvas_id_to_page_num
+            loaded_images_page_numbers = tuple(self._dict_page_num_to_image.keys())
+            for p in loaded_images_page_numbers:
+                if abs(p - page_num) > NUM_PAGE_IMAGE_RANGE_TO_KEEP:
+                    self._canvas.delete(get_page_num_tag(p))
+                    print("Deleted page", p, "from canvas")
+                    self._dict_page_num_to_image.pop(p)
+                    del_img_id = self._dict_page_num_to_canvas_id.pop(p)
+                    self._dict_canvas_id_to_page_num.pop(del_img_id)
 
     def _mouse_wheel_in_canvas(self, event):
         # try:
@@ -393,7 +400,7 @@ class PdfViewer(tk.Tk):
         page_to_consider = None
         page_obj = None
         for v in objects_in_scroll_distance:
-            page_num = self._canvas_id_to_page_num.get(v, None)
+            page_num = self._dict_canvas_id_to_page_num.get(v, None)
             if page_num is None:  # this canvas object isn't a page image
                 continue
 
