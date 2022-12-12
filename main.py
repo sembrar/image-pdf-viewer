@@ -4,6 +4,8 @@ import os
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
+from tkinter import simpledialog
+from tkinter import scrolledtext
 import json
 from PIL import Image, ImageTk
 from collections import namedtuple  # for sending a temp Event type objects with just required data members
@@ -74,6 +76,11 @@ d3 is the vertical part of the arrow tip
 tkinter's default is (8, 10, 3)
 """
 
+TAG_TEXT = "txt"
+ANNOTATION_TEXT_COLOR = _COLOR_CHERRY_RED
+ANNOTATION_TEXT_DEFAULT_ANCHOR = "n"
+ANNOTATION_TEXT_DEFAULT_JUSTIFY = tk.CENTER
+
 
 # some helper functions
 
@@ -100,6 +107,50 @@ def get_page_path(book_folder, page_num):
 
 def get_page_num_tag(page_num):
     return f"{PREFIX_TAG_PAGE_NUM}-{page_num}"
+
+
+class _QueryTextAnnotationDialog(simpledialog.Dialog):
+
+    def __init__(self, title, prompt, initial_value=None, parent=None):
+
+        self.prompt = prompt
+        self.initial_value = initial_value
+        self.entry = None
+
+        simpledialog.Dialog.__init__(self, parent, title)
+
+    def destroy(self):
+        self.entry = None
+        simpledialog.Dialog.destroy(self)
+
+    def body(self, master):
+        w = tk.Label(master, text=self.prompt, justify=tk.LEFT)
+        w.grid(row=0, padx=5, sticky=tk.W)
+
+        self.entry = scrolledtext.ScrolledText(master)
+        self.entry.grid(row=1, padx=5, sticky=tk.W + tk.E)
+
+        if self.initial_value is not None:
+            self.entry.insert("1.0", self.initial_value)
+
+        return self.entry
+
+    def buttonbox(self):
+        super(_QueryTextAnnotationDialog, self).buttonbox()
+        self.unbind("<Return>")  # by default, in super class' buttonbox function, the Return event on "self" is bound
+        # to self.ok function which closes the dialog and returns the result, but, for text, we need Return to just
+        # take the cursor to the next line, so, we unbind the above event AFTER the call to superclass' buttonbox is
+        # finished. We can bind "Control-Return" instead as follows  // https://stackoverflow.com/a/62115918
+        self.bind("<Control-Return>", self.ok)
+
+    def validate(self):
+        self.result = self.entry.get("1.0", tk.END)
+        return 1
+
+
+def ask_text(title, prompt, initial_value=None):
+    d = _QueryTextAnnotationDialog(title, prompt, initial_value)
+    return d.result
 
 
 class PdfViewer(tk.Tk):
@@ -160,14 +211,7 @@ class PdfViewer(tk.Tk):
         # note: After left clicking, even moving outside of the widget will register the Motion event, which is useful
         #  If not left clicked, only the motion inside the widget is registered
 
-        try:
-            self._hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book}
-        except AttributeError:
-            print("Error: Some functions mentioned for key bindings in self._hot_key_bindings do not exist."
-                  " No key bindings will be made.")
-            self._hot_key_bindings = {}
-        for k in self._hot_key_bindings:
-            self.bind_all(f"<Key-{k}>", self._hot_key_bindings[k])
+        self._bind_all_hot_keys()
 
         self._text_bookmarks.bind("<Key>", self._key_press_in_text_bookmarks)
         # The idea is to make the text readonly but also respond to hot-keys
@@ -182,6 +226,7 @@ class PdfViewer(tk.Tk):
 
         self._canvas.bind("<Button-1>", self._left_click_on_canvas)
         self._canvas.bind("<Button-3>", self._right_click_on_canvas)
+        self._canvas.bind("<Button-2>", self._middle_click_in_canvas)
 
         self._text_bookmarks.tag_config(TAG_BOOKMARK, foreground="green")
         self._text_bookmarks.tag_bind(TAG_BOOKMARK, "<Button-1>", self._click_on_a_bookmark)
@@ -625,9 +670,14 @@ class PdfViewer(tk.Tk):
             if ALLOW_DEBUGGING:
                 print("Object with id:", o, "Tags:", tags, "Bbox:", bbox)
 
+            x1, y1, x2, y2 = bbox
+
             if TAG_ARROW in tags:
-                x1, y1, x2, y2 = bbox
                 self._annotations[str(page_num)].append([x2, (y1 + y2) // 2, TAG_ARROW])
+            elif TAG_TEXT in tags:
+                self._annotations[str(page_num)].append([(x1 + x2) // 2, y1, TAG_TEXT,  # using default anchor position
+                                                         self._canvas.itemcget(o, 'text')])
+                # note: using itemcget, other options can also be saved
             elif TAG_PAGE_IMAGE in tags:  # this is the page
                 page_bbox = bbox
 
@@ -659,6 +709,9 @@ class PdfViewer(tk.Tk):
             ann_type = a[2]
             if ann_type == TAG_ARROW:
                 self._left_click_on_canvas(namedtuple("tempEvent", ["x", "y"])(x1 + dx, y1 + dy))
+            elif ann_type == TAG_TEXT:
+                text = a[3]
+                self._middle_click_in_canvas(namedtuple("tempEvent", ["x", "y"])(x1 + dx, y1 + dy), text)
 
     def _save_annotations(self):
         if ALLOW_DEBUGGING:
@@ -691,6 +744,84 @@ class PdfViewer(tk.Tk):
             print("Couldn't write to annotations file:", annotations_file_path)
         except json.JSONDecodeError:
             print("Bad json in", annotations_file_path)
+
+    def _middle_click_in_canvas(
+            self, event,
+            text=None, anchor=ANNOTATION_TEXT_DEFAULT_ANCHOR, justify=ANNOTATION_TEXT_DEFAULT_JUSTIFY):
+        if ALLOW_DEBUGGING:
+            print("Middle click on canvas")
+
+        canvas_x = self._canvas.canvasx(event.x)
+        canvas_y = self._canvas.canvasy(event.y)
+
+        # there should be an underlying page to add a text annotation
+        closest = self._canvas.find_closest(canvas_x, canvas_y)  # either empty, or a singleton with closest object id
+        if len(closest) == 0:
+            if ALLOW_DEBUGGING:
+                print("No page exists at this position, so, annotation can't be added")
+            return
+
+        obj_id = closest[0]
+        tags_of_this_object = self._canvas.gettags(obj_id)
+        if ALLOW_DEBUGGING:
+            print(obj_id, tags_of_this_object)
+        if TAG_PAGE_IMAGE not in tags_of_this_object:
+            if ALLOW_DEBUGGING:
+                print("The underlying object is not a page image. So, annotation can't be added")
+            return
+
+        page_num_tag = None
+        for t in tags_of_this_object:
+            if str.startswith(t, PREFIX_TAG_PAGE_NUM):
+                page_num_tag = t
+                break
+
+        if text is None:
+
+            self._unbind_all_hot_keys()  # otherwise pressing any hot keys in the text dialog will run their handlers
+            text = ask_text("Text Annotation", "Please enter string:")
+            self._bind_all_hot_keys()
+
+            if text is None:
+                if ALLOW_DEBUGGING:
+                    print("Text annotation cancelled")
+                return
+
+            text = text.strip()
+            if text == "":
+                if ALLOW_DEBUGGING:
+                    print("Text annotation cancelled")
+                return
+
+            # todo other things like justify, anchor, movement can be asked too
+            # note: anchor and movement can be used up and need not be saved, because,
+            # bbox along with default anchor will suffice
+
+        annotation_id = self._canvas.create_text(
+            canvas_x, canvas_y,
+            text=text, fill=ANNOTATION_TEXT_COLOR, anchor=anchor, justify=justify,
+            tags=(TAG_OBJECT, TAG_ANNOTATION, TAG_TEXT, page_num_tag)
+        )
+        if ALLOW_DEBUGGING:
+            print("Text annotation added with id:", annotation_id, "tags:", self._canvas.gettags(annotation_id))
+
+    def _bind_all_hot_keys(self):
+        if ALLOW_DEBUGGING:
+            print("Bind all hot keys")
+        try:
+            self._hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book}
+        except AttributeError:
+            print("Error: Some functions mentioned for key bindings in self._hot_key_bindings do not exist."
+                  " No key bindings will be made.")
+            self._hot_key_bindings = {}
+        for k in self._hot_key_bindings:
+            self.bind_all(f"<Key-{k}>", self._hot_key_bindings[k])
+
+    def _unbind_all_hot_keys(self):
+        if ALLOW_DEBUGGING:
+            print("Unbind all hot keys")
+        for k in self._hot_key_bindings:
+            self.unbind_all(f"<Key-{k}>")
 
 
 def main():
