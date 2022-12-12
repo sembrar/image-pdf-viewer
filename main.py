@@ -25,7 +25,9 @@ SETTINGS_FILE_PATH = os.path.join(_FOLDER_OF_THIS_PYTHON_FILE, "data\\settings.j
 
 KEY_SETTING_GUI_GEOMETRY = "geometry"
 KEY_SETTING_GUI_STATE = "state"  # maximized window, or normal window
-CURRENTLY_OPENED_BOOK = "currently-opened-book"
+KEY_CURRENTLY_OPENED_BOOK = "currently-opened-book"
+
+KEY_CURRENTLY_VISIBLE_PAGES = "currently-visible-pages"
 
 
 KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS = set()
@@ -33,9 +35,6 @@ KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS.update(map(lambda x: f"F
 if ALLOW_DEBUGGING:
     print("Keys that will be further processed in text bookmarks:",
           KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS)
-
-
-KEY_CURRENT_OPENED_PAGE_NUM = "current-opened-page-num"
 
 TAG_OBJECT = "obj"
 TAG_PAGE_IMAGE = "pg-img"
@@ -232,7 +231,7 @@ class PdfViewer(tk.Tk):
         self._text_bookmarks.tag_bind(TAG_BOOKMARK, "<Button-1>", self._click_on_a_bookmark)
 
         # if there is a previously opened book, open it
-        currently_opened_book = self._gui_settings.get(CURRENTLY_OPENED_BOOK, None)
+        currently_opened_book = self._gui_settings.get(KEY_CURRENTLY_OPENED_BOOK, None)
         if currently_opened_book is not None and os.path.isdir(currently_opened_book):
             self._load_book(currently_opened_book)
 
@@ -255,9 +254,8 @@ class PdfViewer(tk.Tk):
 
     def destroy(self):
         self._save_gui_settings()
-
-        # save annotations
         self._save_annotations()
+        self._save_book_settings()
 
         tk.Tk.destroy(self)
 
@@ -308,7 +306,7 @@ class PdfViewer(tk.Tk):
 
         # find the initial directory for ask directory dialog:
         # if a book is opened currently, use its parent directory as initial directory, else use the Drive letter
-        currently_opened_book = self._gui_settings.get(CURRENTLY_OPENED_BOOK, None)
+        currently_opened_book = self._gui_settings.get(KEY_CURRENTLY_OPENED_BOOK, None)
         if currently_opened_book is not None:
             parent_dir_of_currently_opened_book = os.path.split(currently_opened_book)[0]
             if os.path.isdir(parent_dir_of_currently_opened_book):
@@ -326,7 +324,7 @@ class PdfViewer(tk.Tk):
         if ALLOW_DEBUGGING:
             print(f"Chosen folder {result} for open a book.")
 
-        self._gui_settings[CURRENTLY_OPENED_BOOK] = result
+        self._gui_settings[KEY_CURRENTLY_OPENED_BOOK] = result
 
         self._load_book(result)
 
@@ -359,17 +357,18 @@ class PdfViewer(tk.Tk):
 
         metadata_folder = get_metadata_folder(book_directory)
 
-        page_to_open = 1
+        book_settings = {}
 
         if os.path.exists(metadata_folder):
 
             # read book settings like which page opened
             try:
                 with open(get_book_settings_file_path(metadata_folder)) as f:
-                    book_settings = json.loads(f.read())  # type: dict
-                page_to_open = book_settings.get(KEY_CURRENT_OPENED_PAGE_NUM, page_to_open)
+                    book_settings = json.loads(f.read())
             except IOError:
                 print("Book-settings file doesn't exist for this book:", get_book_settings_file_path(metadata_folder))
+            except json.JSONDecodeError:
+                print("Bad json in book-settings file:", get_book_settings_file_path(metadata_folder))
 
             # read bookmarks
             self._text_bookmarks.delete("1.0", tk.END)
@@ -389,7 +388,14 @@ class PdfViewer(tk.Tk):
             # read annotations
             self._read_annotations()
 
-        self._load_page(page_to_open)
+        try:
+            visible_pages = book_settings[KEY_CURRENTLY_VISIBLE_PAGES]
+            assert type(visible_pages) == list
+            self._canvas.delete(TAG_OBJECT)  # delete all objects on canvas
+            for page_num, x, y in visible_pages:
+                self._load_page(page_num, x=x, y=y, delete_all_objects=False)
+        except (KeyError, AssertionError, ValueError):
+            self._load_page(1)
 
     def _load_page(self, page_num, delete_all_objects=True, x=2, y=2, anchor="nw"):
 
@@ -429,7 +435,7 @@ class PdfViewer(tk.Tk):
             if ALLOW_DEBUGGING:
                 print("This page has to be loaded")
 
-            page_png_image_path = get_page_path(self._gui_settings[CURRENTLY_OPENED_BOOK], page_num)
+            page_png_image_path = get_page_path(self._gui_settings[KEY_CURRENTLY_OPENED_BOOK], page_num)
             if not os.path.isfile(page_png_image_path):
                 print("There is no page with number:", page_num)
                 return
@@ -722,7 +728,7 @@ class PdfViewer(tk.Tk):
         for p in self._dict_page_num_to_image:
             self._save_annotations_back_to_the_dict_for_page(p)
 
-        metadata_folder = get_metadata_folder(self._gui_settings[CURRENTLY_OPENED_BOOK])
+        metadata_folder = get_metadata_folder(self._gui_settings[KEY_CURRENTLY_OPENED_BOOK])
         annotations_file_path = get_annotations_file_path(metadata_folder)
         try:
             with open(annotations_file_path, 'w') as f:
@@ -734,7 +740,7 @@ class PdfViewer(tk.Tk):
         if ALLOW_DEBUGGING:
             print("Read annotations")
 
-        metadata_folder = get_metadata_folder(self._gui_settings[CURRENTLY_OPENED_BOOK])
+        metadata_folder = get_metadata_folder(self._gui_settings[KEY_CURRENTLY_OPENED_BOOK])
         annotations_file_path = get_annotations_file_path(metadata_folder)
         try:
             with open(annotations_file_path) as f:
@@ -823,6 +829,38 @@ class PdfViewer(tk.Tk):
             print("Unbind all hot keys")
         for k in self._hot_key_bindings:
             self.unbind_all(f"<Key-{k}>")
+
+    def _save_book_settings(self):
+        if ALLOW_DEBUGGING:
+            print("Save book settings")
+
+        canvas_width = self._canvas.winfo_width()
+        canvas_height = self._canvas.winfo_height()
+
+        book_settings = {KEY_CURRENTLY_VISIBLE_PAGES: []}
+
+        objects_in_visible_region = self._canvas.find_overlapping(0, 0, canvas_width, canvas_height)
+        for o in objects_in_visible_region:
+            tags = self._canvas.gettags(o)
+            if ALLOW_DEBUGGING:
+                print("Object", o, "in visible region with tags", tags)
+            if TAG_PAGE_IMAGE not in tags:
+                continue
+            page_num = self._dict_canvas_id_to_page_num.get(o)
+            bbox = self._canvas.bbox(o)
+            x1, y1, _, _ = bbox
+            book_settings[KEY_CURRENTLY_VISIBLE_PAGES].append([page_num, x1, y1])
+
+        if ALLOW_DEBUGGING:
+            print("Book settings to be saved:", book_settings)
+
+        metadata_folder = get_metadata_folder(self._gui_settings[KEY_CURRENTLY_OPENED_BOOK])
+        book_settings_file_path = get_book_settings_file_path(metadata_folder)
+        try:
+            with open(book_settings_file_path, 'w') as f:
+                f.write(json.dumps(book_settings))
+        except IOError:
+            print("Error: Couldn't write to book settings file:", book_settings_file_path)
 
 
 def main():
