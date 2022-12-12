@@ -329,6 +329,10 @@ class PdfViewer(tk.Tk):
             self._save_annotations()
             self._save_book_settings()
 
+        # clear canvas and bookmarks
+        self._canvas.delete(TAG_OBJECT)  # delete all objects on canvas
+        self._text_bookmarks.delete("1.0", tk.END)
+
         self._gui_settings[KEY_CURRENTLY_OPENED_BOOK] = result
 
         self._load_book(result)
@@ -396,7 +400,6 @@ class PdfViewer(tk.Tk):
         try:
             visible_pages = book_settings[KEY_CURRENTLY_VISIBLE_PAGES]
             assert type(visible_pages) == list
-            self._canvas.delete(TAG_OBJECT)  # delete all objects on canvas
             for page_num, x, y in visible_pages:
                 self._load_page(page_num, x=x, y=y, delete_all_objects=False)
         except (KeyError, AssertionError, ValueError):
