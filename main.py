@@ -324,6 +324,11 @@ class PdfViewer(tk.Tk):
         if ALLOW_DEBUGGING:
             print(f"Chosen folder {result} for open a book.")
 
+        # save the annotations of the current book
+        if self._gui_settings.get(KEY_CURRENTLY_OPENED_BOOK, None) is not None:
+            self._save_annotations()
+            self._save_book_settings()
+
         self._gui_settings[KEY_CURRENTLY_OPENED_BOOK] = result
 
         self._load_book(result)
