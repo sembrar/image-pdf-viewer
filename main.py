@@ -80,6 +80,13 @@ ANNOTATION_TEXT_COLOR = _COLOR_CHERRY_RED
 ANNOTATION_TEXT_DEFAULT_ANCHOR = "n"
 ANNOTATION_TEXT_DEFAULT_JUSTIFY = tk.CENTER
 
+TAG_ANNOTATION_HIGHLIGHTED = "ann-hl"
+TAG_BBOX = "bbox"
+ANNOTATION_HIGHLIGHT_COLOR = _COLOR_TEAL
+ANNOTATION_HIGHLIGHT_WIDTH = 2
+ANNOTATION_HIGHLIGHT_BBOX_PADDING = 5
+ANNOTATION_HIGHLIGHTED_BRING_TO_SIGHT_PADDING = 100  # the out of sight annotations are
+# brought to this many pixels into the visible area
 
 # some helper functions
 
@@ -824,7 +831,8 @@ class PdfViewer(tk.Tk):
         if ALLOW_DEBUGGING:
             print("Bind all hot keys")
         try:
-            self._hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book}
+            self._hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book,
+                                      "Down": self._down_or_up_arrow, "Up": self._down_or_up_arrow}
         except AttributeError:
             print("Error: Some functions mentioned for key bindings in self._hot_key_bindings do not exist."
                   " No key bindings will be made.")
@@ -869,6 +877,236 @@ class PdfViewer(tk.Tk):
                 f.write(json.dumps(book_settings))
         except IOError:
             print("Error: Couldn't write to book settings file:", book_settings_file_path)
+
+    def _down_or_up_arrow(self, event):
+        if ALLOW_DEBUGGING:
+            print("Down or Up arrow hot key event")
+
+        """
+        note: for the below discussion: annotations are ordered by sorting with x1 and then by y1 (of their bbox) 
+        there are two possibilities: there is a highlighted annotation, there isn't
+        if there isn't a highlighted annotation:
+            again two possibilities: there are annotations on canvas, there aren't
+            if there are annotations on canvas:
+                first, try to choose the top-most among the visible annotations
+                if can't then:
+                if direction is up:
+                    try to choose the ones beyond top of the visible portion
+                    if still can't, need to load a new page (lesser page number) with annotations
+                      (--check that volatile things like annotations are saved while loading the new page) 
+                    and choose the bottom most annotation in it
+                else i.e. direction is down:
+                    try to choose the ones beyond the bottom of the visible portion
+                    if still can't, need to load a new page (higher page number) with annotations
+                      (--check that volatile things like annotations are saved while loading the new page)
+                    and choose the top most annotation in it
+            else:  i.e. there are NO annotations on canvas:
+                if direction is up:
+                    need to load a new page (lesser page number) with annotations 
+                    and choose the bottom most annotation in it
+                else i.e. direction is down:
+                    need to load a new page (higher page number) with annotations
+                    and choose the top most annotation in it
+        else:  i.e. there IS a highlighted annotation 
+            two possibilities: it is in the visible region, it is not in the visible region  (happens if scrolled)
+            if it is NOT in the visible region:
+                bring it into view
+            else i.e. it is in the visible region:
+                if direction is up:
+                    try to go to an annotation above the current highlighted annotation
+                    if can't, need to load a new page (lesser page number) with annotations
+                      (--check that volatile things like annotations are saved while loading the new page) 
+                    and choose the bottom most annotation in it
+                else i.e. direction is down:
+                    try to go to an annotation below the current highlighted annotation
+                    if still can't, need to load a new page (higher page number) with annotations
+                      (--check that volatile things like annotations are saved while loading the new page)
+                    and choose the top most annotation in it
+        """
+
+        highlighted_annotations = self._canvas.find_withtag(TAG_ANNOTATION_HIGHLIGHTED)
+        # there should either be none or one
+
+        if ALLOW_DEBUGGING:
+            print(f"Highlighted annotations:", highlighted_annotations)
+
+        annotations_on_canvas = self._canvas.find_withtag(TAG_ANNOTATION)
+        annotations_on_canvas_with_their_bbox = list(zip(
+            annotations_on_canvas, map(lambda x: self._canvas.bbox(x), annotations_on_canvas)
+        ))
+        # sort by x1 in bbox
+        annotations_on_canvas_with_their_bbox.sort(key=lambda x: x[1][0])  # x[1] is bbox; bbox[0] is x1
+        # then, sort by y1 in bbox (so that sort by y1 is the most recent)
+        annotations_on_canvas_with_their_bbox.sort(key=lambda x: x[1][1])  # x[1] is bbox; bbox[1] is y1
+
+        direction_is_down = (event.keysym == "Down")
+        canvas_height = self._canvas.winfo_height()
+
+        annotation_to_highlight = None
+
+        if len(highlighted_annotations) == 0:  # there isn't a highlighted annotation
+            if len(annotations_on_canvas) > 0:  # there are annotations on canvas
+                # try to choose the top-most visible annotation if any
+                for a, bbox in annotations_on_canvas_with_their_bbox:
+                    y1 = bbox[1]
+                    if 0 <= y1 < canvas_height:
+                        annotation_to_highlight = a
+                        break
+                if annotation_to_highlight is None:
+                    if direction_is_down:
+                        # try to choose the ones beyond the bottom of the visible portion
+                        for a, bbox in annotations_on_canvas_with_their_bbox:
+                            y1 = bbox[1]
+                            if y1 > canvas_height:
+                                annotation_to_highlight = a
+                                break
+                        if annotation_to_highlight is None:
+                            # (handled at bottom)
+                            # need to load a new page (higher page number) with annotations
+                            # (--check that volatile things like annotations are saved while loading the new page)
+                            # and choose the top most annotation in it
+                            pass
+                    else:
+                        # try to choose the ones beyond top of the visible portion
+                        for a, bbox in reversed(annotations_on_canvas_with_their_bbox):
+                            # reversed because, we want to get bottom-most
+                            y1 = bbox[1]
+                            if y1 < 0:
+                                annotation_to_highlight = a
+                                break
+                        if annotation_to_highlight is None:
+                            # (handled at bottom)
+                            # need to load a new page (lesser page number) with annotations
+                            # (--check that volatile things like annotations are saved while loading the new page)
+                            # and choose the bottom most annotation in it
+                            pass
+            else:  # there aren't any annotations on canvas
+                if direction_is_down:
+                    # (handled at bottom)
+                    # need to load a new page (higher page number) with annotations
+                    # and choose the top most annotation in it
+                    pass
+                else:
+                    # (handled at bottom)
+                    # need to load a new page (lesser page number) with annotations
+                    # and choose the bottom most annotation in it
+                    pass
+        elif len(highlighted_annotations) == 1:
+            current_highlighted_annotation = highlighted_annotations[0]
+            _, y1_current_highlighted_annotation, _, y2_current_highlighted_annotation =\
+                self._canvas.bbox(current_highlighted_annotation)
+            if y2_current_highlighted_annotation < 0 or y1_current_highlighted_annotation >= canvas_height:
+                # highlighted annotation is outside visible region
+                annotation_to_highlight = current_highlighted_annotation
+                pass
+            else:  # highlighted annotation IS in the visible region
+                if direction_is_down:
+                    # try to go to an annotation below the current highlighted annotation
+                    for i in range(len(annotations_on_canvas_with_their_bbox)):
+                        a = annotations_on_canvas_with_their_bbox[i][0]
+                        if a == current_highlighted_annotation:
+                            if (i + 1) < len(annotations_on_canvas_with_their_bbox):
+                                annotation_to_highlight = annotations_on_canvas_with_their_bbox[i+1][0]
+                            break
+                    if annotation_to_highlight is None:
+                        # (handled at bottom)
+                        # need to load a new page (higher page number) with annotations
+                        # (--check that volatile things like annotations are saved while loading the new page)
+                        # and choose the top most annotation in it
+                        pass
+                else:
+                    # try to go to an annotation above the current highlighted annotation
+                    for i in range(len(annotations_on_canvas_with_their_bbox)):
+                        a = annotations_on_canvas_with_their_bbox[i][0]
+                        if a == current_highlighted_annotation:
+                            if i > 0:
+                                annotation_to_highlight = annotations_on_canvas_with_their_bbox[i-1][0]
+                            break
+                    if annotation_to_highlight is None:
+                        # (handled at bottom)
+                        # need to load a new page (lesser page number) with annotations
+                        # (--check that volatile things like annotations are saved while loading the new page)
+                        # and choose the bottom most annotation in it
+                        pass
+
+        else:  # error there can't be more than 1 highlighted annotations
+            print("Error: There can't be more than 1 highlighted annotations. Their details:")
+            for a in highlighted_annotations:
+                print("Object", a, "with tags:", self._canvas.gettags(a))
+            # todo: un-highlight all annotations
+            return
+
+        if annotation_to_highlight is None:
+
+            # need to load new page with annotations
+            sorted_page_nums_with_annotations = sorted(
+                map(int, self._annotations.keys()),
+                reverse=(not direction_is_down))  # if direction is up, we get descending order
+
+            page_to_load = None
+            if direction_is_down:
+                highest_page_num_on_canvas = max(self._dict_page_num_to_image.keys())
+                for p in sorted_page_nums_with_annotations:
+                    if p > highest_page_num_on_canvas and len(self._annotations[str(p)]) > 0:
+                        page_to_load = p
+                        break
+            else:  # direction is up
+                lowest_page_num_on_canvas = min(self._dict_page_num_to_image.keys())
+                for p in sorted_page_nums_with_annotations:
+                    if p < lowest_page_num_on_canvas and len(self._annotations[str(p)]) > 0:
+                        page_to_load = p
+                        break
+
+            if page_to_load is None:
+                if ALLOW_DEBUGGING:
+                    print("No more annotations in this book")
+                return
+
+            self._load_page(page_to_load)  # note that this will also save any volatile annotations and clears canvas
+            # and also draws annotations
+
+            annotations_on_canvas = self._canvas.find_withtag(TAG_ANNOTATION)
+            annotations_on_canvas_with_their_bbox = list(zip(
+                annotations_on_canvas, map(lambda x: self._canvas.bbox(x), annotations_on_canvas)
+            ))
+            annotations_on_canvas_with_their_bbox.sort(key=lambda x: x[1][0])  # x[1] is bbox, x[1][0] is x1
+            annotations_on_canvas_with_their_bbox.sort(key=lambda x: x[1][1])  # x[1] is bbox, x[1][1] is y1
+
+            # now depending on the direction, scroll to the annotation
+            if direction_is_down:  # highlight top most
+                annotation_to_highlight = annotations_on_canvas_with_their_bbox[0][0]
+            else:  # highlight bottom most
+                annotation_to_highlight = annotations_on_canvas_with_their_bbox[-1][0]
+
+        if annotation_to_highlight is None:
+            print("Error: Annotation to highlight is None. This shouldn't happen.")
+            return
+
+        self._canvas.delete(TAG_BBOX)
+        try:
+            self._canvas.dtag(highlighted_annotations[0], TAG_ANNOTATION_HIGHLIGHTED)
+        except IndexError:  # highlighted_annotations is either empty or singleton
+            if ALLOW_DEBUGGING:
+                print("No highlighted annotation exists yet to remove the tag from")
+            pass
+
+        self._canvas.addtag_withtag(TAG_ANNOTATION_HIGHLIGHTED, annotation_to_highlight)
+        x1, y1, x2, y2 = self._canvas.bbox(annotation_to_highlight)
+        x1 -= ANNOTATION_HIGHLIGHT_BBOX_PADDING
+        y1 -= ANNOTATION_HIGHLIGHT_BBOX_PADDING
+        x2 += ANNOTATION_HIGHLIGHT_BBOX_PADDING
+        y2 += ANNOTATION_HIGHLIGHT_BBOX_PADDING
+        self._canvas.create_rectangle(x1, y1, x2, y2, outline=ANNOTATION_HIGHLIGHT_COLOR,
+                                      width=ANNOTATION_HIGHLIGHT_WIDTH,
+                                      tags=(TAG_OBJECT, TAG_BBOX))
+        if y1 > canvas_height or y2 < 0:  # the highlighted annotation is out of sight
+            if direction_is_down:
+                # bring to the top: it's y1 should be at top highlighted-padding
+                dy = ANNOTATION_HIGHLIGHTED_BRING_TO_SIGHT_PADDING - y1
+            else:  # direction is up
+                # bring to the bottom: it's y2 should be at the bottom highlighted-padding
+                dy = canvas_height - ANNOTATION_HIGHLIGHTED_BRING_TO_SIGHT_PADDING - y2
+            self._canvas.move(TAG_OBJECT, 0, dy)
 
 
 def main():
