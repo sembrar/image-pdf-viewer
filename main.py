@@ -15,7 +15,7 @@ import ctypes
 ctypes.windll.shcore.SetProcessDpiAwareness(1)  # do this once before starting the GUI to fix blurring in 1080p screens
 
 
-ALLOW_DEBUGGING = True
+ALLOW_DEBUGGING = False
 
 
 DEFAULT_BOOKMARKS_TEXT_WIDTH = 40  # It is num chars. Also, height isn't required because it will expand vertically
@@ -596,7 +596,8 @@ class PdfViewer(tk.Tk):
 
         obj_id = closest[0]
         tags_of_this_object = self._canvas.gettags(obj_id)
-        print(obj_id, tags_of_this_object)
+        if ALLOW_DEBUGGING:
+            print("Underlying object:", obj_id, "with tags:", tags_of_this_object)
         if TAG_PAGE_IMAGE not in tags_of_this_object:
             if ALLOW_DEBUGGING:
                 print("The underlying object is not a page image. So, annotation can't be added")
