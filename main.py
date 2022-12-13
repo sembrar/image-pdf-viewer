@@ -39,6 +39,7 @@ if ALLOW_DEBUGGING:
 TAG_OBJECT = "obj"
 TAG_PAGE_IMAGE = "pg-img"
 PREFIX_TAG_PAGE_NUM = "pg-num"  # this is used in tag.startswith, so, this must be unique prefix
+PREFIX_TAG_ANNOTATION_ARROW_DELTAS = "ann_del"  # this is used in tag.startswith, so, this must also be unique
 
 TAG_BOOKMARK = "bm"
 
@@ -113,6 +114,15 @@ def get_page_path(book_folder, page_num):
 
 def get_page_num_tag(page_num):
     return f"{PREFIX_TAG_PAGE_NUM}-{page_num}"
+
+
+def get_tag_annotation_arrow_deltas(dx, dy):
+    return f"{PREFIX_TAG_ANNOTATION_ARROW_DELTAS}_{int(dx)}_{int(dy)}"
+
+
+def get_dx_dy_from_tag_annotation_arrow_deltas(tag_annotation_arrow_deltas):
+    _, dx, dy = str.rsplit(tag_annotation_arrow_deltas, "_", 2)  # 2 breaking points from right side at the split char
+    return int(dx), int(dy)
 
 
 class _QueryTextAnnotationDialog(simpledialog.Dialog):
@@ -555,17 +565,25 @@ class PdfViewer(tk.Tk):
                 print("The underlying object is not a page image. So, annotation can't be added")
             return
 
-        page_num_tag = None
-        for t in tags_of_this_object:
-            if str.startswith(t, PREFIX_TAG_PAGE_NUM):
-                page_num_tag = t
-                break
+        # the object given by obj_id is a page image object
+        page_bbox = self._canvas.bbox(obj_id)
+        x1, y1, _, _ = page_bbox
+        dx = canvas_x - x1
+        dy = canvas_y - y1
+        page_num = self._dict_canvas_id_to_page_num[obj_id]
+        self._add_arrow_annotation(dx, dy, page_num)
+
+    def _add_arrow_annotation(self, dx, dy, page_num):
+        # print(dx, dy, page_num)
+        page_bbox = self._canvas.bbox(self._dict_page_num_to_canvas_id[page_num])
+        x1, y1, _, _ = page_bbox
 
         annotation_id = self._canvas.create_line(
-            canvas_x, canvas_y, canvas_x - ANNOTATION_ARROW_LENGTH, canvas_y,
+            x1 + dx, y1 + dy, x1 + dx - ANNOTATION_ARROW_LENGTH, y1 + dy,
             arrow=tk.FIRST, arrowshape=ANNOTATION_ARROW_SHAPE,
             fill=ANNOTATION_ARROW_COLOR, width=ANNOTATION_ARROW_WIDTH,
-            tags=(TAG_OBJECT, TAG_ANNOTATION, TAG_ARROW, page_num_tag)
+            tags=(TAG_OBJECT, TAG_ANNOTATION, TAG_ARROW, get_page_num_tag(page_num),
+                  get_tag_annotation_arrow_deltas(dx, dy))
         )
         if ALLOW_DEBUGGING:
             print("Arrow annotation added with id:", annotation_id, "tags:", self._canvas.gettags(annotation_id))
@@ -614,7 +632,9 @@ class PdfViewer(tk.Tk):
 
         self._annotations[str(page_num)] = []  # string key because, this is saved to a json file, and,
         # json converts int keys to string keys while saving
-        page_bbox = None  # page bbox is used to store the annotations by relative position to the page
+
+        # page bbox is used to store the annotations by relative position to the page
+        page_bbox = self._canvas.bbox(self._dict_page_num_to_canvas_id[page_num])
 
         for o in objects_with_page_num_tag:
             tags = self._canvas.gettags(o)
@@ -626,18 +646,27 @@ class PdfViewer(tk.Tk):
             x1, y1, x2, y2 = bbox
 
             if TAG_ARROW in tags:
-                self._annotations[str(page_num)].append([x2, (y1 + y2) // 2, TAG_ARROW])
+                tag_annotation_arrow_deltas = None
+                for t in tags:
+                    if t.startswith(PREFIX_TAG_ANNOTATION_ARROW_DELTAS):
+                        tag_annotation_arrow_deltas = t
+                        break
+                if tag_annotation_arrow_deltas is None:
+                    print("Critical warning: Tag annotation arrow deltas is None."
+                          " It ir required to get dx and dy for arrow annotations."
+                          " Otherwise, the arrows keep moving to the right everytime the book is reopened.")
+                    self._annotations[str(page_num)].append([x2, (y1 + y2) // 2, TAG_ARROW])
+                else:
+                    dx, dy = get_dx_dy_from_tag_annotation_arrow_deltas(tag_annotation_arrow_deltas)
+                    self._annotations[str(page_num)].append([page_bbox[0] + dx, page_bbox[1] + dy, TAG_ARROW])
+                    # note that page_bbox[0] and page_bbox[1] are added above, because,
+                    # at the end of the function, all x and y are made relative to the page
             elif TAG_TEXT in tags:
                 self._annotations[str(page_num)].append([(x1 + x2) // 2, y1, TAG_TEXT,  # using default anchor position
                                                          self._canvas.itemcget(o, 'text')])
                 # note: using itemcget, other options can also be saved
-            elif TAG_PAGE_IMAGE in tags:  # this is the page
-                page_bbox = bbox
 
         # make all x and y relative to the page
-        if page_bbox is None:
-            print("Error: In save annotations back to the dict for page", page_num, "no page image exists on canvas")
-            return
         x1, y1, x2, y2 = page_bbox
         for i in range(len(self._annotations[str(page_num)])):
             x, y = self._annotations[str(page_num)][i][:2]
@@ -661,7 +690,7 @@ class PdfViewer(tk.Tk):
             dx, dy = a[:2]
             ann_type = a[2]
             if ann_type == TAG_ARROW:
-                self._left_click_on_canvas(namedtuple("tempEvent", ["x", "y"])(x1 + dx, y1 + dy))
+                self._add_arrow_annotation(dx, dy, page_num)
             elif ann_type == TAG_TEXT:
                 text = a[3]
                 self._middle_click_in_canvas(namedtuple("tempEvent", ["x", "y"])(x1 + dx, y1 + dy), text)
