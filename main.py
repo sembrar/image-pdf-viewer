@@ -513,76 +513,7 @@ class PdfViewer(tk.Tk):
         if len(objects_in_scroll_distance) > 0:
             self._canvas.move(TAG_OBJECT, 0, scroll_amount)  # move all objects on canvas
 
-        # now, if a page is going beyond boundaries, then next / previous page has to be shown for continuous scroll
-        # if scrolling up, consider page at the top most (of the screen), if scrolling down, the bottom most
-        page_to_consider = None
-        page_obj = None
-        for v in objects_in_scroll_distance:
-            page_num = self._dict_canvas_id_to_page_num.get(v, None)
-            if page_num is None:  # this canvas object isn't a page image
-                continue
-
-            if page_to_consider is None:
-                page_to_consider = page_num
-                page_obj = v
-                continue
-
-            if event.delta < 0:  # scrolling down
-                if page_num > page_to_consider:
-                    page_to_consider = page_num
-                    page_obj = v
-            else:
-                if page_num < page_to_consider:
-                    page_to_consider = page_num
-                    page_obj = v
-
-        if ALLOW_DEBUGGING:
-            print("For showing next/previous page: Page to consider:", page_to_consider, "Page object:", page_obj)
-
-        if page_to_consider is None:
-            return
-
-        if event.delta < 0:  # scrolling down
-            _, _, _, y2 = self._canvas.bbox(page_obj)
-
-            if ALLOW_DEBUGGING:
-                print("The bottom most y coordinate of the page:", y2)
-
-            if y2 < canvas_height - PIXELS_BETWEEN_PAGES:
-                if ALLOW_DEBUGGING:
-                    print("Page scrolled up. Show next page i.e. Page", page_to_consider + 1)
-                    print("Existing pages on canvas:")
-                    for p in sorted(self._dict_page_num_to_canvas_id.keys()):
-                        canvas_id = self._dict_page_num_to_canvas_id[p]
-                        print(f"Page-{p}:"
-                              f" Tags: {self._canvas.gettags(canvas_id)}"
-                              f" Bbox: {self._canvas.bbox(canvas_id)}")
-
-                self._load_page(page_to_consider + 1, delete_all_objects=False, y=y2 + PIXELS_BETWEEN_PAGES)
-            else:
-                if ALLOW_DEBUGGING:
-                    print("Page hasn't scrolled up enough to reveal next page")
-
-        else:  # scrolling up  (event.delta > 0)
-            _, y1, _, _ = self._canvas.bbox(page_obj)
-
-            if ALLOW_DEBUGGING:
-                print("The top most y coordinate of the page:", y1)
-
-            if y1 > PIXELS_BETWEEN_PAGES:
-                if ALLOW_DEBUGGING:
-                    print("Page scrolled down. Show previous page i.e. Page", page_to_consider - 1)
-                    print("Existing pages on canvas:")
-                    for p in sorted(self._dict_page_num_to_canvas_id.keys()):
-                        canvas_id = self._dict_page_num_to_canvas_id[p]
-                        print(f"Page-{p}:"
-                              f" Tags: {self._canvas.gettags(canvas_id)}"
-                              f" Bbox: {self._canvas.bbox(canvas_id)}")
-                self._load_page(page_to_consider - 1, delete_all_objects=False, y=y1 - PIXELS_BETWEEN_PAGES,
-                                anchor="sw")
-            else:
-                if ALLOW_DEBUGGING:
-                    print("Page hasn't scrolled down enough to reveal previous page")
+        self._load_neighbor_pages_if_there_is_empty_space_on_visible_area()
 
     def _click_on_a_bookmark(self, _):
         bookmark_clicked = self._text_bookmarks.get("current linestart", "current lineend")
@@ -1107,6 +1038,46 @@ class PdfViewer(tk.Tk):
                 # bring to the bottom: it's y2 should be at the bottom highlighted-padding
                 dy = canvas_height - ANNOTATION_HIGHLIGHTED_BRING_TO_SIGHT_PADDING - y2
             self._canvas.move(TAG_OBJECT, 0, dy)
+            self._load_neighbor_pages_if_there_is_empty_space_on_visible_area()
+
+    def _load_neighbor_pages_if_there_is_empty_space_on_visible_area(self):
+        if ALLOW_DEBUGGING:
+            print("Load neighbor pages if there is empty space on visible area")
+
+        # canvas_width = self._canvas.winfo_width()
+        canvas_height = self._canvas.winfo_height()
+
+        existing_pages_on_canvas = sorted(self._dict_page_num_to_image.keys())
+
+        min_page = existing_pages_on_canvas[0]
+        max_page = existing_pages_on_canvas[-1]
+
+        min_page_bbox = self._canvas.bbox(self._dict_page_num_to_canvas_id[min_page])
+        max_page_bbox = self._canvas.bbox(self._dict_page_num_to_canvas_id[max_page])
+
+        _, min_page_top, _, _ = min_page_bbox
+        _, _, _, max_page_bottom = max_page_bbox
+
+        if min_page_top > PIXELS_BETWEEN_PAGES:
+            if ALLOW_DEBUGGING:
+                print("Empty space detected at top. Loading a previous neighbor page: Page", min_page - 1)
+            self._load_page(min_page - 1, delete_all_objects=False, y=min_page_top-PIXELS_BETWEEN_PAGES, anchor="sw")
+        else:
+            if ALLOW_DEBUGGING:
+                print("No empty space detected at top to load a neighbor page")
+
+        if max_page_bottom < canvas_height - PIXELS_BETWEEN_PAGES:
+            if ALLOW_DEBUGGING:
+                print("Empty space detected at bottom. Loading a next page: Page", max_page + 1)
+            self._load_page(max_page + 1, delete_all_objects=False, y=max_page_bottom+PIXELS_BETWEEN_PAGES)
+        else:
+            if ALLOW_DEBUGGING:
+                print("No empty space detected at bottom to load a next neighbor page")
+
+        # note that this function may be called inside _load_page itself, they will call each other recursively
+        # until the entire visible region is filled (in case of short page heights), however, an infinite loop may
+        # occur if the combined page heights along with the spaces between pages for the maximum number of pages
+        # allowed to load (given by NUM_PAGE_IMAGE_RANGE_TO_KEEP), on a whole, is shorter than the visible region
 
 
 def main():
