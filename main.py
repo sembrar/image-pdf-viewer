@@ -5,10 +5,12 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
 from tkinter import simpledialog
+from tkinter import messagebox
 from tkinter import scrolledtext
 import json
 from PIL import Image, ImageTk
 from collections import namedtuple  # for sending a temp Event type objects with just required data members
+from datetime import datetime
 
 import ctypes
 
@@ -29,6 +31,9 @@ KEY_CURRENTLY_OPENED_BOOK = "currently-opened-book"
 
 KEY_CURRENTLY_VISIBLE_PAGES = "currently-visible-pages"
 
+KEY_RECENTLY_OPENED_BOOKS = "recently-opened-books"
+NUM_BOOKS_TO_STORE_IN_RECENTLY_OPENED_BOOKS = 10
+_DATETIME_FORMAT_TO_SAVE = "%Y-%m-%d-%H-%M-%S-%f"
 
 KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS = set()
 KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS.update(map(lambda x: f"F{x}", range(1, 12+1)))  # function keys
@@ -149,7 +154,7 @@ class _QueryTextAnnotationDialog(simpledialog.Dialog):
         if self.initial_value is not None:
             self.entry.insert("1.0", self.initial_value)
 
-        return self.entry
+        return self.entry  # this will have initial focus
 
     def buttonbox(self):
         super(_QueryTextAnnotationDialog, self).buttonbox()
@@ -166,6 +171,63 @@ class _QueryTextAnnotationDialog(simpledialog.Dialog):
 
 def ask_text(title, prompt, initial_value=None):
     d = _QueryTextAnnotationDialog(title, prompt, initial_value)
+    return d.result
+
+
+class _QueryRecentBooksDialog(simpledialog.Dialog):
+
+    def __init__(self, title, prompt, recent_books, parent=None):
+        self._prompt = prompt
+        self._recent_books = recent_books
+        self._book_button_widgets = {}
+
+        self._selected_bg = "light blue"
+        self._deselected_bg = "white"
+
+        simpledialog.Dialog.__init__(self, parent, title)
+
+    def destroy(self):
+        self._book_button_widgets = None
+        simpledialog.Dialog.destroy(self)
+
+    def body(self, master):
+        w = tk.Label(master, text=self._prompt, justify=tk.LEFT)
+        w.grid(row=0, column=0, sticky='w')
+
+        frame = ttk.Frame(master)
+        frame.grid(row=1, column=0, sticky='w')
+
+        for i in range(len(self._recent_books)):
+            book_path = self._recent_books[i]
+            book_name = os.path.split(book_path)[-1]
+
+            button = tk.Button(frame, text=book_name, bg=self._deselected_bg, relief="flat", anchor="w")
+            button.grid(row=i, column=0, sticky="ew")
+
+            button.bind("<Button-1>", self._select_this)
+
+            self._book_button_widgets[str(button)] = button
+
+            button.book_path = book_path
+
+    def validate(self):
+        result = None
+        for i in self._book_button_widgets:
+            button = self._book_button_widgets[i]
+            if button.cget("bg") == self._selected_bg:
+                result = button.book_path
+                break
+        self.result = result
+        return 1
+
+    def _select_this(self, event):
+        for i in self._book_button_widgets:
+            self._book_button_widgets[i].configure(bg=self._deselected_bg)
+        self._book_button_widgets[str(event.widget)].configure(bg=self._selected_bg)
+
+
+def ask_recent_book(title, prompt, recent_books):
+    d = _QueryRecentBooksDialog(title, prompt, recent_books)
     return d.result
 
 
@@ -288,6 +350,17 @@ class PdfViewer(tk.Tk):
             self.state("normal")
         self._gui_settings[KEY_SETTING_GUI_GEOMETRY] = self.winfo_geometry()
 
+        # if there are more recently opened books than allowed, remove the older ones
+        # this code is commented for now, meaning, all recent books will be saved
+        # as, the dialog only shows max allowed number of books, it may be kept this way for now
+
+        # recently_opened_books = self._gui_settings.get(KEY_RECENTLY_OPENED_BOOKS, {})
+        # if len(recently_opened_books) > NUM_BOOKS_TO_STORE_IN_RECENTLY_OPENED_BOOKS:
+        #     books_ordered_by_most_recent = sorted(recently_opened_books.keys(),
+        #                                           key=lambda x: recently_opened_books[x], reverse=True)
+        #     for i in range(NUM_BOOKS_TO_STORE_IN_RECENTLY_OPENED_BOOKS, len(books_ordered_by_most_recent)):
+        #         recently_opened_books.pop(books_ordered_by_most_recent[i])
+
         if ALLOW_DEBUGGING:
             print("GUI settings being saved:", self._gui_settings)
 
@@ -341,22 +414,42 @@ class PdfViewer(tk.Tk):
         if ALLOW_DEBUGGING:
             print(f"Chosen folder {result} for open a book.")
 
-        # save the annotations of the current book
-        if self._gui_settings.get(KEY_CURRENTLY_OPENED_BOOK, None) is not None:
-            self._save_annotations()
-            self._save_book_settings()
-
-        # clear canvas and bookmarks
-        self._canvas.delete(TAG_OBJECT)  # delete all objects on canvas
-        self._text_bookmarks.delete("1.0", tk.END)
-
-        self._gui_settings[KEY_CURRENTLY_OPENED_BOOK] = result
-
+        self._save_current_book_and_clear_canvas_and_bookmarks_and_dictionaries()
         self._load_book(result)
 
     # this function should provide a list of recently opened books to choose from quickly
-    def _open_a_recent_book(self, event):
-        return
+    def _open_a_recent_book(self, _event):
+        if ALLOW_DEBUGGING:
+            print("Open a recent book")
+
+        recently_opened_books = sorted(self._gui_settings.get(KEY_RECENTLY_OPENED_BOOKS, {}).keys(), reverse=True)
+        if ALLOW_DEBUGGING:
+            print("Recent books:", recently_opened_books)
+
+        if len(recently_opened_books) == 0:
+            if ALLOW_DEBUGGING:
+                print("No recently opened books exist")
+            else:
+                messagebox.showinfo("Info", "No books were opened previously to choose from")
+                pass
+            return
+
+        recently_opened_books = recently_opened_books[:NUM_BOOKS_TO_STORE_IN_RECENTLY_OPENED_BOOKS]
+        result = ask_recent_book("Quick open", "Choose a recently opened book:", recently_opened_books)
+        if ALLOW_DEBUGGING:
+            print("Result:", result)
+
+        if result is None:
+            if ALLOW_DEBUGGING:
+                print("Open recent book Cancelled")
+            return
+        if type(result) != str:
+            if ALLOW_DEBUGGING:
+                print("Unknown result type: Open recent book dialog returned something other than str")
+            return
+
+        self._save_current_book_and_clear_canvas_and_bookmarks_and_dictionaries()
+        self._load_book(result)
 
     def _key_press_in_text_bookmarks(self, event):
         if ALLOW_DEBUGGING:
@@ -377,9 +470,38 @@ class PdfViewer(tk.Tk):
 
         return "break"  # makes the text bookmark readonly by disallowing further processing of the event
 
+    def _save_current_book_and_clear_canvas_and_bookmarks_and_dictionaries(self):
+        # save the annotations, book-settings of the current book
+        if self._gui_settings.get(KEY_CURRENTLY_OPENED_BOOK, None) is not None:
+            self._save_annotations()
+            self._save_book_settings()
+
+        # clear canvas and bookmarks
+        self._canvas.delete(TAG_OBJECT)  # delete all objects on canvas
+        self._text_bookmarks.delete("1.0", tk.END)
+
+        # clear all dictionaries
+        self._dict_page_num_to_image.clear()
+        self._dict_page_num_to_canvas_id.clear()
+        self._dict_canvas_id_to_page_num.clear()
+        self._annotations.clear()
+
     def _load_book(self, book_directory):
         if ALLOW_DEBUGGING:
             print("\nLoad book", book_directory)
+
+        if not os.path.isdir(book_directory):
+            print("ERROR: Book dir doesn't exist:", book_directory)
+            return
+
+        # the following setting is used in other functions, for example, in _load_page etc
+        self._gui_settings[KEY_CURRENTLY_OPENED_BOOK] = book_directory
+
+        # save the book directory to recently opened
+        if KEY_RECENTLY_OPENED_BOOKS not in self._gui_settings:
+            self._gui_settings[KEY_RECENTLY_OPENED_BOOKS] = {}
+        self._gui_settings[KEY_RECENTLY_OPENED_BOOKS][book_directory] =\
+            datetime.today().strftime(_DATETIME_FORMAT_TO_SAVE)
 
         metadata_folder = get_metadata_folder(book_directory)
 
@@ -417,6 +539,7 @@ class PdfViewer(tk.Tk):
         try:
             visible_pages = book_settings[KEY_CURRENTLY_VISIBLE_PAGES]
             assert type(visible_pages) == list
+            assert len(visible_pages) > 0
             for page_num, x, y in visible_pages:
                 self._load_page(page_num, x=x, y=y, delete_all_objects=False)
         except (KeyError, AssertionError, ValueError):
