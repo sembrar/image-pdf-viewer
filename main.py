@@ -422,7 +422,9 @@ class PdfViewer(tk.Tk):
         if ALLOW_DEBUGGING:
             print("Open a recent book")
 
-        recently_opened_books = sorted(self._gui_settings.get(KEY_RECENTLY_OPENED_BOOKS, {}).keys(), reverse=True)
+        recently_opened_books_dict = self._gui_settings.get(KEY_RECENTLY_OPENED_BOOKS, {})
+        recently_opened_books = sorted(recently_opened_books_dict.keys(),
+                                       key=lambda x: recently_opened_books_dict[x], reverse=True)
         if ALLOW_DEBUGGING:
             print("Recent books:", recently_opened_books)
 
@@ -431,7 +433,6 @@ class PdfViewer(tk.Tk):
                 print("No recently opened books exist")
             else:
                 messagebox.showinfo("Info", "No books were opened previously to choose from")
-                pass
             return
 
         recently_opened_books = recently_opened_books[:NUM_BOOKS_TO_STORE_IN_RECENTLY_OPENED_BOOKS]
