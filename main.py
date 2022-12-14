@@ -917,7 +917,7 @@ class PdfViewer(tk.Tk):
         try:
             self._hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book,
                                       "Down": self._down_or_up_arrow, "Up": self._down_or_up_arrow,
-                                      "j": self._jump_to_a_page}
+                                      "j": self._jump_to_a_page, "h": self._show_help_text}
         except AttributeError:
             print("Error: Some functions mentioned for key bindings in self._hot_key_bindings do not exist."
                   " No key bindings will be made.")
@@ -1251,6 +1251,19 @@ class PdfViewer(tk.Tk):
             return
 
         self._load_page(result)
+
+    @staticmethod
+    def _show_help_text(_event):
+        help_text =\
+            "1. Left click to add arrow annotation\n" \
+            "2. Middle click to add a text annotation\n" \
+            "3. Right click on an existing annotation to remove it\n" \
+            "4. Use 'Up' and 'Down' keys to navigate through annotations\n" \
+            "Hot keys:\n" \
+            "5. Click 'o' to open a new book\n" \
+            "6. Click 'r' to choose from recently opened books\n" \
+            "7. Click 'j' to jump to a page by page number"
+        messagebox.showinfo("Help", help_text)
 
 
 def main():
