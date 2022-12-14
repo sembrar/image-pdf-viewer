@@ -49,7 +49,7 @@ PREFIX_TAG_ANNOTATION_ARROW_DELTAS = "ann_del"  # this is used in tag.startswith
 TAG_BOOKMARK = "bm"
 
 
-NUM_PIXELS_TO_SCROLL = 40
+NUM_PIXELS_TO_SCROLL = 80
 PIXELS_BETWEEN_PAGES = 20
 NUM_PAGE_IMAGE_RANGE_TO_KEEP = 3  # this means from current page num +-3 are kept
 
