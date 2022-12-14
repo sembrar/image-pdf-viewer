@@ -585,7 +585,8 @@ class PdfViewer(tk.Tk):
 
             page_png_image_path = get_page_path(self._gui_settings[KEY_CURRENTLY_OPENED_BOOK], page_num)
             if not os.path.isfile(page_png_image_path):
-                print("There is no page with number:", page_num)
+                if ALLOW_DEBUGGING:
+                    print("There is no page with number:", page_num)
                 return
 
             # PIL needs lingering reference (otherwise, the image gets garbage collected and unavailable)
@@ -1201,6 +1202,10 @@ class PdfViewer(tk.Tk):
         canvas_height = self._canvas.winfo_height()
 
         existing_pages_on_canvas = sorted(self._dict_page_num_to_image.keys())
+        if len(existing_pages_on_canvas) == 0:
+            if ALLOW_DEBUGGING:
+                print("There are no pages on canvas")
+            return 
 
         min_page = existing_pages_on_canvas[0]
         max_page = existing_pages_on_canvas[-1]
