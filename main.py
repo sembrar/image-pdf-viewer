@@ -915,7 +915,8 @@ class PdfViewer(tk.Tk):
             print("Bind all hot keys")
         try:
             self._hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book,
-                                      "Down": self._down_or_up_arrow, "Up": self._down_or_up_arrow}
+                                      "Down": self._down_or_up_arrow, "Up": self._down_or_up_arrow,
+                                      "j": self._jump_to_a_page}
         except AttributeError:
             print("Error: Some functions mentioned for key bindings in self._hot_key_bindings do not exist."
                   " No key bindings will be made.")
@@ -1230,6 +1231,21 @@ class PdfViewer(tk.Tk):
         # until the entire visible region is filled (in case of short page heights), however, an infinite loop may
         # occur if the combined page heights along with the spaces between pages for the maximum number of pages
         # allowed to load (given by NUM_PAGE_IMAGE_RANGE_TO_KEEP), on a whole, is shorter than the visible region
+
+    def _jump_to_a_page(self, _event):
+        if ALLOW_DEBUGGING:
+            print("Jump to a page")
+
+        result = simpledialog.askinteger("Jump to", "Please enter a page number to jump to:")
+        if ALLOW_DEBUGGING:
+            print("Result:", result)
+
+        if result is None:
+            if ALLOW_DEBUGGING:
+                print("Jump to a page cancelled")
+            return
+
+        self._load_page(result)
 
 
 def main():
