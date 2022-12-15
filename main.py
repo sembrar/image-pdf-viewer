@@ -302,9 +302,9 @@ class PdfViewer(tk.Tk):
         # this is working as expected to work, i.e. even though focus is in some other widget, if mouse is scrolled
         # in this widget, the event is being registered
 
-        self._canvas.bind("<Button-1>", self._left_click_on_canvas)
-        self._canvas.bind("<Button-3>", self._right_click_on_canvas)
-        self._canvas.bind("<Button-2>", self._middle_click_in_canvas)
+        self._canvas.bind("<Button-2>", self._event_handler_for_arrow_annotation)  # middle click
+        self._canvas.bind("<Control-Button-2>", self._event_handler_for_text_annotation)  # control-middle click
+        self._canvas.bind("<Button-3>", self._event_handler_for_remove_annotation)  # right click
 
         self._text_bookmarks.tag_config(TAG_BOOKMARK, foreground="green")
         self._text_bookmarks.tag_bind(TAG_BOOKMARK, "<Button-1>", self._click_on_a_bookmark)
@@ -668,7 +668,7 @@ class PdfViewer(tk.Tk):
 
         self._load_page(page_num)
 
-    def _left_click_on_canvas(self, event):
+    def _event_handler_for_arrow_annotation(self, event):
         if ALLOW_DEBUGGING:
             print("Left click on canvas")
         canvas_x = self._canvas.canvasx(event.x)
@@ -713,7 +713,7 @@ class PdfViewer(tk.Tk):
         if ALLOW_DEBUGGING:
             print("Arrow annotation added with id:", annotation_id, "tags:", self._canvas.gettags(annotation_id))
 
-    def _right_click_on_canvas(self, event):
+    def _event_handler_for_remove_annotation(self, event):
         if ALLOW_DEBUGGING:
             print("Right click on canvas")
         canvas_x = self._canvas.canvasx(event.x)
@@ -818,7 +818,7 @@ class PdfViewer(tk.Tk):
                 self._add_arrow_annotation(dx, dy, page_num)
             elif ann_type == TAG_TEXT:
                 text = a[3]
-                self._middle_click_in_canvas(namedtuple("tempEvent", ["x", "y"])(x1 + dx, y1 + dy), text)
+                self._event_handler_for_text_annotation(namedtuple("tempEvent", ["x", "y"])(x1 + dx, y1 + dy), text)
 
     def _save_annotations(self):
         if ALLOW_DEBUGGING:
@@ -852,7 +852,7 @@ class PdfViewer(tk.Tk):
         except json.JSONDecodeError:
             print("Bad json in", annotations_file_path)
 
-    def _middle_click_in_canvas(
+    def _event_handler_for_text_annotation(
             self, event,
             text=None, anchor=ANNOTATION_TEXT_DEFAULT_ANCHOR, justify=ANNOTATION_TEXT_DEFAULT_JUSTIFY):
         if ALLOW_DEBUGGING:
