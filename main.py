@@ -238,8 +238,9 @@ class _QueryTextAnnotationDialog(simpledialog.Dialog):
         self._buttons_for_text_justify[str(event.widget)].configure(bg=self._selected_bg)
 
 
-def ask_text(title, prompt, initial_value=None):
-    d = _QueryTextAnnotationDialog(title, prompt, initial_value)
+def ask_text(title, prompt, initial_value=None,
+             text_anchor=ANNOTATION_TEXT_DEFAULT_ANCHOR, text_justify=ANNOTATION_TEXT_DEFAULT_JUSTIFY):
+    d = _QueryTextAnnotationDialog(title, prompt, initial_value, text_anchor=text_anchor, text_justify=text_justify)
     return d.result
 
 
@@ -984,13 +985,15 @@ class PdfViewer(tk.Tk):
         # if text is None, ask user for new text
         if text is None:
             self._unbind_all_hot_keys()  # otherwise pressing any hot keys in the text dialog will run their handlers
-            text, anchor, justify = ask_text("New Text Annotation", "Please enter text:")
+            result = ask_text("New Text Annotation", "Please enter text:")
             self._bind_all_hot_keys()
 
-            if text is None:
+            if result is None:
                 if ALLOW_DEBUGGING:
                     print("New text annotation cancelled")
                 return
+
+            text, anchor, justify = result
 
             text = text.strip()
             if text == "":
@@ -1015,7 +1018,42 @@ class PdfViewer(tk.Tk):
             print("Text annotation added with id:", annotation_id, "tags:", self._canvas.gettags(annotation_id))
 
     def _edit_existing_text_annotation(self, text_annotation_object):
-        pass  # todo
+        text = self._canvas.itemcget(text_annotation_object, 'text').strip()
+        anchor = self._canvas.itemcget(text_annotation_object, 'anchor')
+        justify = self._canvas.itemcget(text_annotation_object, 'justify')
+        result = ask_text("Edit text", "Please make any changes:", text, anchor, justify)
+        if result is None:
+            if ALLOW_DEBUGGING:
+                print("Edit text annotation cancelled")
+                pass
+            return
+        new_text, anchor, justify = result
+        if new_text == "":
+            if ALLOW_DEBUGGING:
+                print("Edit text cancelled because new text is empty")
+            return
+        old_tags = self._canvas.gettags(text_annotation_object)
+
+        dx, dy, page_num = None, None, None
+        for t in old_tags:
+            if t.startswith(PREFIX_TAG_ANNOTATION_DELTAS):
+                dx, dy = get_dx_dy_from_tag_annotation_deltas(t)
+                break
+        for t in old_tags:
+            if t.startswith(PREFIX_TAG_PAGE_NUM):
+                page_num = int(str.rsplit(t, "-", 1)[-1])
+                break
+
+        if dx is None or dy is None or page_num is None:
+            if ALLOW_DEBUGGING:
+                print(f"ERROR: dx={dx}, dy={dy}, pageNum={page_num}. Edit text annotation cancelled")
+            return
+
+        self._canvas.delete(text_annotation_object)
+        self._add_new_text_annotation(dx, dy, page_num, new_text, anchor, justify)
+
+        if ALLOW_DEBUGGING:
+            print("Text annotation edited")
 
     def _bind_all_hot_keys(self):
         if ALLOW_DEBUGGING:
