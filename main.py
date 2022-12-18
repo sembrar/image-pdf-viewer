@@ -9,7 +9,6 @@ from tkinter import messagebox
 from tkinter import scrolledtext
 import json
 from PIL import Image, ImageTk
-from collections import namedtuple  # for sending a temp Event type objects with just required data members
 from datetime import datetime
 
 import ctypes
@@ -44,7 +43,7 @@ if ALLOW_DEBUGGING:
 TAG_OBJECT = "obj"
 TAG_PAGE_IMAGE = "pg-img"
 PREFIX_TAG_PAGE_NUM = "pg-num"  # this is used in tag.startswith, so, this must be unique prefix
-PREFIX_TAG_ANNOTATION_ARROW_DELTAS = "ann_del"  # this is used in tag.startswith, so, this must also be unique
+PREFIX_TAG_ANNOTATION_DELTAS = "ann_del"  # this is used in tag.startswith, so, this must also be unique
 
 TAG_BOOKMARK = "bm"
 
@@ -121,38 +120,80 @@ def get_page_num_tag(page_num):
     return f"{PREFIX_TAG_PAGE_NUM}-{page_num}"
 
 
-def get_tag_annotation_arrow_deltas(dx, dy):
-    return f"{PREFIX_TAG_ANNOTATION_ARROW_DELTAS}_{int(dx)}_{int(dy)}"
+def get_tag_annotation_deltas(dx, dy):
+    return f"{PREFIX_TAG_ANNOTATION_DELTAS}_{int(dx)}_{int(dy)}"
 
 
-def get_dx_dy_from_tag_annotation_arrow_deltas(tag_annotation_arrow_deltas):
-    _, dx, dy = str.rsplit(tag_annotation_arrow_deltas, "_", 2)  # 2 breaking points from right side at the split char
+def get_dx_dy_from_tag_annotation_deltas(tag_annotation_deltas):
+    _, dx, dy = str.rsplit(tag_annotation_deltas, "_", 2)  # 2 breaking points from right side at the split char
     return int(dx), int(dy)
 
 
 class _QueryTextAnnotationDialog(simpledialog.Dialog):
 
-    def __init__(self, title, prompt, initial_value=None, parent=None):
+    def __init__(self, title, prompt, initial_value=None, parent=None,
+                 text_anchor=ANNOTATION_TEXT_DEFAULT_ANCHOR, text_justify=ANNOTATION_TEXT_DEFAULT_JUSTIFY):
 
         self.prompt = prompt
         self.initial_value = initial_value
         self.entry = None
 
+        self._initial_text_anchor = text_anchor
+        self._initial_text_justify = text_justify
+
+        self._selected_bg = "light blue"
+        self._deselected_bg = "white"
+        self._buttons_for_text_anchor = {}
+        self._buttons_for_text_justify = {}
+
         simpledialog.Dialog.__init__(self, parent, title)
 
     def destroy(self):
         self.entry = None
+        self._buttons_for_text_anchor = None
+        self._buttons_for_text_justify = None
         simpledialog.Dialog.destroy(self)
 
     def body(self, master):
         w = tk.Label(master, text=self.prompt, justify=tk.LEFT)
-        w.grid(row=0, padx=5, sticky=tk.W)
+        w.grid(row=0, column=0, columnspan=2, sticky="w")
 
+        # the text widget
         self.entry = scrolledtext.ScrolledText(master)
-        self.entry.grid(row=1, padx=5, sticky=tk.W + tk.E)
-
+        self.entry.grid(row=1, column=0, columnspan=2, sticky="ew")
         if self.initial_value is not None:
             self.entry.insert("1.0", self.initial_value)
+
+        # the text anchor buttons:
+
+        label_frame_anchor = ttk.Labelframe(master, text="Anchor:")
+        label_frame_anchor.grid(row=2, column=0, sticky='nw')
+
+        anchors = "nw n ne w c e sw s se".split()
+        for i in range(len(anchors)):
+            a = anchors[i]
+            button = tk.Button(
+                label_frame_anchor, text=a, relief=tk.FLAT,
+                bg=self._selected_bg if a == self._initial_text_anchor else self._deselected_bg)
+            button.grid(row=i//3, column=i % 3, sticky='ew')
+            button.bind("<Button-1>", self._select_this_anchor)
+            self._buttons_for_text_anchor[str(button)] = button
+
+        # the text justify buttons:
+
+        label_frame_justify = ttk.Labelframe(master, text="Justify:")
+        label_frame_justify.grid(row=2, column=1, sticky="nw")
+        master.columnconfigure(1, weight=1)  # so that this labelframe and the text-anchor label frame look side-by-side
+
+        justifies = "left center right".split()
+        for i in range(len(justifies)):
+            j = justifies[i]
+            button = tk.Button(
+                label_frame_justify, text=j, relief=tk.FLAT,
+                bg=self._selected_bg if j == self._initial_text_justify else self._deselected_bg)
+            button.grid(row=0, column=i)
+            button.bind("<Button-1>", self._select_this_justify)
+            self._buttons_for_text_justify[str(button)] = button
 
         return self.entry  # this will have initial focus
 
@@ -165,8 +206,36 @@ class _QueryTextAnnotationDialog(simpledialog.Dialog):
         self.bind("<Control-Return>", self.ok)
 
     def validate(self):
-        self.result = self.entry.get("1.0", tk.END)
+        text = self.entry.get("1.0", tk.END)
+
+        anchor = None
+        for i in self._buttons_for_text_anchor:
+            if self._buttons_for_text_anchor[i].cget("bg") == self._selected_bg:
+                anchor = self._buttons_for_text_anchor[i].cget("text")
+                break
+        if anchor is None:
+            anchor = ANNOTATION_TEXT_DEFAULT_ANCHOR
+
+        justify = None
+        for i in self._buttons_for_text_justify:
+            if self._buttons_for_text_justify[i].cget("bg") == self._selected_bg:
+                justify = self._buttons_for_text_justify[i].cget("text")
+                break
+        if justify is None:
+            justify = ANNOTATION_TEXT_DEFAULT_JUSTIFY
+
+        self.result = text, anchor, justify
         return 1
+
+    def _select_this_anchor(self, event):
+        for i in self._buttons_for_text_anchor:
+            self._buttons_for_text_anchor[i].configure(bg=self._deselected_bg)
+        self._buttons_for_text_anchor[str(event.widget)].configure(bg=self._selected_bg)
+
+    def _select_this_justify(self, event):
+        for i in self._buttons_for_text_justify:
+            self._buttons_for_text_justify[i].configure(bg=self._deselected_bg)
+        self._buttons_for_text_justify[str(event.widget)].configure(bg=self._selected_bg)
 
 
 def ask_text(title, prompt, initial_value=None):
@@ -708,7 +777,7 @@ class PdfViewer(tk.Tk):
             arrow=tk.FIRST, arrowshape=ANNOTATION_ARROW_SHAPE,
             fill=ANNOTATION_ARROW_COLOR, width=ANNOTATION_ARROW_WIDTH,
             tags=(TAG_OBJECT, TAG_ANNOTATION, TAG_ARROW, get_page_num_tag(page_num),
-                  get_tag_annotation_arrow_deltas(dx, dy))
+                  get_tag_annotation_deltas(dx, dy))
         )
         if ALLOW_DEBUGGING:
             print("Arrow annotation added with id:", annotation_id, "tags:", self._canvas.gettags(annotation_id))
@@ -770,26 +839,40 @@ class PdfViewer(tk.Tk):
 
             x1, y1, x2, y2 = bbox
 
+            dx, dy = None, None
+
+            for t in tags:
+                if t.startswith(PREFIX_TAG_ANNOTATION_DELTAS):
+                    dx, dy = get_dx_dy_from_tag_annotation_deltas(t)
+                    break
+
             if TAG_ARROW in tags:
-                tag_annotation_arrow_deltas = None
-                for t in tags:
-                    if t.startswith(PREFIX_TAG_ANNOTATION_ARROW_DELTAS):
-                        tag_annotation_arrow_deltas = t
-                        break
-                if tag_annotation_arrow_deltas is None:
-                    print("Critical warning: Tag annotation arrow deltas is None."
-                          " It ir required to get dx and dy for arrow annotations."
-                          " Otherwise, the arrows keep moving to the right everytime the book is reopened.")
+                if dx is None or dy is None:
+                    if ALLOW_DEBUGGING:
+                        print("Critical warning: Tag annotation deltas is None."
+                              " It is required to get dx and dy for arrow annotations."
+                              " Otherwise, the arrows keep moving to the right everytime the book is reopened.")
                     self._annotations[str(page_num)].append([x2, (y1 + y2) // 2, TAG_ARROW])
                 else:
-                    dx, dy = get_dx_dy_from_tag_annotation_arrow_deltas(tag_annotation_arrow_deltas)
                     self._annotations[str(page_num)].append([page_bbox[0] + dx, page_bbox[1] + dy, TAG_ARROW])
                     # note that page_bbox[0] and page_bbox[1] are added above, because,
                     # at the end of the function, all x and y are made relative to the page
             elif TAG_TEXT in tags:
-                self._annotations[str(page_num)].append([(x1 + x2) // 2, y1, TAG_TEXT,  # using default anchor position
-                                                         self._canvas.itemcget(o, 'text')])
-                # note: using itemcget, other options can also be saved
+                if dx is None or dy is None:
+                    if ALLOW_DEBUGGING:
+                        print("Critical warning: Tag annotation deltas is None."
+                              " It is required to get dx and dy because they are used in conjunction with anchor.")
+                    self._annotations[str(page_num)].append(
+                        [(x1 + x2) // 2, y1, TAG_TEXT,  # using default anchor position
+                         self._canvas.itemcget(o, 'text')])
+                else:
+                    self._annotations[str(page_num)].append(
+                        [page_bbox[0] + dx, page_bbox[1] + dy, TAG_TEXT,
+                         self._canvas.itemcget(o, 'text'),
+                         self._canvas.itemcget(o, 'anchor'),
+                         self._canvas.itemcget(o, 'justify')])
+                    # note that page_bbox[0] and page_bbox[1] are added above, because,
+                    # at the end of the function, all x and y are made relative to the page
 
         # make all x and y relative to the page
         x1, y1, x2, y2 = page_bbox
@@ -807,10 +890,6 @@ class PdfViewer(tk.Tk):
                 print("No annotations exist for page", page_num)
             return
 
-        page_obj = self._dict_page_num_to_canvas_id[page_num]
-        page_bbox = self._canvas.bbox(page_obj)
-        x1, y1, x2, y2 = page_bbox
-
         for a in self._annotations[str(page_num)]:
             dx, dy = a[:2]
             ann_type = a[2]
@@ -818,7 +897,14 @@ class PdfViewer(tk.Tk):
                 self._add_arrow_annotation(dx, dy, page_num)
             elif ann_type == TAG_TEXT:
                 text = a[3]
-                self._event_handler_for_text_annotation(namedtuple("tempEvent", ["x", "y"])(x1 + dx, y1 + dy), text)
+                anchor = ANNOTATION_TEXT_DEFAULT_ANCHOR
+                justify = ANNOTATION_TEXT_DEFAULT_JUSTIFY
+                try:
+                    anchor = a[4]
+                    justify = a[5]
+                except IndexError:
+                    pass
+                self._add_new_text_annotation(dx, dy, page_num, text, anchor, justify)
 
     def _save_annotations(self):
         if ALLOW_DEBUGGING:
@@ -852,11 +938,9 @@ class PdfViewer(tk.Tk):
         except json.JSONDecodeError:
             print("Bad json in", annotations_file_path)
 
-    def _event_handler_for_text_annotation(
-            self, event,
-            text=None, anchor=ANNOTATION_TEXT_DEFAULT_ANCHOR, justify=ANNOTATION_TEXT_DEFAULT_JUSTIFY):
+    def _event_handler_for_text_annotation(self, event):
         if ALLOW_DEBUGGING:
-            print("Middle click on canvas")
+            print("Event handler for text annotation")
 
         canvas_x = self._canvas.canvasx(event.x)
         canvas_y = self._canvas.canvasy(event.y)
@@ -872,45 +956,66 @@ class PdfViewer(tk.Tk):
         tags_of_this_object = self._canvas.gettags(obj_id)
         if ALLOW_DEBUGGING:
             print(obj_id, tags_of_this_object)
-        if TAG_PAGE_IMAGE not in tags_of_this_object:
+
+        if TAG_TEXT in tags_of_this_object:
+            self._edit_existing_text_annotation(obj_id)
+        elif TAG_PAGE_IMAGE in tags_of_this_object:
+            # this is a page-image object
+            try:
+                page_num = self._dict_canvas_id_to_page_num.get(obj_id)
+                page_x1, page_y1, _, _ = self._canvas.bbox(obj_id)
+                dx = canvas_x - page_x1
+                dy = canvas_y - page_y1
+                self._add_new_text_annotation(dx, dy, page_num)
+            except KeyError:
+                if ALLOW_DEBUGGING:
+                    print("ERROR: Page object", obj_id, "doesn't exist in the dict")
+                return
+        else:
             if ALLOW_DEBUGGING:
-                print("The underlying object is not a page image. So, annotation can't be added")
-            return
+                print("The underlying object is neither a text annotation for editing,"
+                      " nor a page image to add new text annotation on to.")
 
-        page_num_tag = None
-        for t in tags_of_this_object:
-            if str.startswith(t, PREFIX_TAG_PAGE_NUM):
-                page_num_tag = t
-                break
+        return
 
+    def _add_new_text_annotation(self, dx, dy, page_num, text=None,
+                                 anchor=ANNOTATION_TEXT_DEFAULT_ANCHOR, justify=ANNOTATION_TEXT_DEFAULT_JUSTIFY):
+
+        # if text is None, ask user for new text
         if text is None:
-
             self._unbind_all_hot_keys()  # otherwise pressing any hot keys in the text dialog will run their handlers
-            text = ask_text("Text Annotation", "Please enter string:")
+            text, anchor, justify = ask_text("New Text Annotation", "Please enter text:")
             self._bind_all_hot_keys()
 
             if text is None:
                 if ALLOW_DEBUGGING:
-                    print("Text annotation cancelled")
+                    print("New text annotation cancelled")
                 return
 
             text = text.strip()
             if text == "":
                 if ALLOW_DEBUGGING:
-                    print("Text annotation cancelled")
+                    print("Text annotation cancelled (empty string received)")
                 return
 
-            # todo other things like justify, anchor, movement can be asked too
-            # note: anchor and movement can be used up and need not be saved, because,
-            # bbox along with default anchor will suffice
+        try:
+            page_x1, page_y1, _, _ = self._canvas.bbox(self._dict_page_num_to_canvas_id[page_num])
+        except KeyError:
+            if ALLOW_DEBUGGING:
+                print(f"ERROR: Page-{page_num} doesn't exist on canvas")
+            return
 
         annotation_id = self._canvas.create_text(
-            canvas_x, canvas_y,
+            page_x1 + dx, page_y1 + dy,
             text=text, fill=ANNOTATION_TEXT_COLOR, anchor=anchor, justify=justify,
-            tags=(TAG_OBJECT, TAG_ANNOTATION, TAG_TEXT, page_num_tag)
+            tags=(TAG_OBJECT, TAG_ANNOTATION, TAG_TEXT, get_page_num_tag(page_num),
+                  get_tag_annotation_deltas(dx, dy))
         )
         if ALLOW_DEBUGGING:
             print("Text annotation added with id:", annotation_id, "tags:", self._canvas.gettags(annotation_id))
+
+    def _edit_existing_text_annotation(self, text_annotation_object):
+        pass  # todo
 
     def _bind_all_hot_keys(self):
         if ALLOW_DEBUGGING:
