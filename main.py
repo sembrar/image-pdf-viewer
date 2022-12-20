@@ -29,6 +29,7 @@ KEY_SETTING_GUI_STATE = "state"  # maximized window, or normal window
 KEY_CURRENTLY_OPENED_BOOK = "currently-opened-book"
 
 KEY_CURRENTLY_VISIBLE_PAGES = "currently-visible-pages"
+KEY_SCROLLBAR_POSITIONS = "scroll-bar-positions"
 
 KEY_RECENTLY_OPENED_BOOKS = "recently-opened-books"
 NUM_BOOKS_TO_STORE_IN_RECENTLY_OPENED_BOOKS = 10
@@ -608,6 +609,13 @@ class PdfViewer(tk.Tk):
             self._read_annotations()
 
         try:
+            h_scroll_pos, v_scroll_pos = book_settings[KEY_SCROLLBAR_POSITIONS]
+            self._text_bookmarks.xview_moveto(h_scroll_pos[0])
+            self._text_bookmarks.yview_moveto(v_scroll_pos[0])
+        except (KeyError, ValueError):
+            pass
+
+        try:
             visible_pages = book_settings[KEY_CURRENTLY_VISIBLE_PAGES]
             assert type(visible_pages) == list
             assert len(visible_pages) > 0
@@ -1095,6 +1103,8 @@ class PdfViewer(tk.Tk):
             bbox = self._canvas.bbox(o)
             x1, y1, _, _ = bbox
             book_settings[KEY_CURRENTLY_VISIBLE_PAGES].append([page_num, x1, y1])
+
+        book_settings[KEY_SCROLLBAR_POSITIONS] = (self._h_scroll_bookmarks.get(), self._v_scroll_bookmarks.get())
 
         if ALLOW_DEBUGGING:
             print("Book settings to be saved:", book_settings)
