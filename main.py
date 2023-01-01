@@ -32,7 +32,7 @@ KEY_CURRENTLY_VISIBLE_PAGES = "currently-visible-pages"
 KEY_SCROLLBAR_POSITIONS = "scroll-bar-positions"
 
 KEY_RECENTLY_OPENED_BOOKS = "recently-opened-books"
-NUM_BOOKS_TO_STORE_IN_RECENTLY_OPENED_BOOKS = 10
+NUM_BOOKS_TO_STORE_IN_RECENTLY_OPENED_BOOKS = 20
 _DATETIME_FORMAT_TO_SAVE = "%Y-%m-%d-%H-%M-%S-%f"
 
 KEY_PRESSES_TO_ALLOW_FURTHER_HANDLING_IN_TEXT_BOOKMARKS = set()
@@ -1029,7 +1029,9 @@ class PdfViewer(tk.Tk):
         text = self._canvas.itemcget(text_annotation_object, 'text').strip()
         anchor = self._canvas.itemcget(text_annotation_object, 'anchor')
         justify = self._canvas.itemcget(text_annotation_object, 'justify')
+        self._unbind_all_hot_keys()
         result = ask_text("Edit text", "Please make any changes:", text, anchor, justify)
+        self._bind_all_hot_keys()
         if result is None:
             if ALLOW_DEBUGGING:
                 print("Edit text annotation cancelled")
