@@ -890,6 +890,15 @@ class PdfViewer(tk.Tk):
             self._annotations[str(page_num)][i][0] = x - x1
             self._annotations[str(page_num)][i][1] = y - y1
 
+        # remove duplicates
+        annotations_as_set = set(map(tuple, self._annotations[str(page_num)]))
+        # directly converting to set is throwing an error: unhashable type: 'list', so,
+        # each annotation(which is itself a list) in the list of annotations is converted to tuple
+        if len(annotations_as_set) != len(self._annotations[str(page_num)]):
+            if ALLOW_DEBUGGING:
+                print("Duplicates found:", self._annotations[str(page_num)])
+            self._annotations[str(page_num)] = list(map(list, annotations_as_set))
+
     def _draw_annotations_in_dict_on_to_canvas_for_page(self, page_num):
         if ALLOW_DEBUGGING:
             print("Draw annotations in dict on to canvas for page")
@@ -898,6 +907,15 @@ class PdfViewer(tk.Tk):
             if ALLOW_DEBUGGING:
                 print("No annotations exist for page", page_num)
             return
+
+        # remove duplicates
+        annotations_as_set = set(map(tuple, self._annotations[str(page_num)]))
+        # directly converting to set is throwing an error: unhashable type: 'list', so,
+        # each annotation(which is itself a list) in the list of annotations is converted to tuple
+        if len(annotations_as_set) != len(self._annotations[str(page_num)]):
+            if ALLOW_DEBUGGING:
+                print("Duplicates found:", self._annotations[str(page_num)])
+            self._annotations[str(page_num)] = list(map(list, annotations_as_set))
 
         for a in self._annotations[str(page_num)]:
             dx, dy = a[:2]
