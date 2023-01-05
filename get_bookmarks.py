@@ -82,12 +82,18 @@ def main():
     # show_tree(pdf_reader.getOutlines())
     bookmarks = get_bookmarks_list_with_page_numbers(pdf_reader.getOutlines(), pdf_reader)
 
+    # Before adding deltas:
+    # for i in range(len(bookmarks)):
+    #     print(f"{i}:", bookmarks[i])
+
     if args.deltas is not None:
         print("Adding deltas:")
         deltas_sub_commands = args.deltas.strip().split(";")
         # print(deltas_sub_commands)
         for sub_command in deltas_sub_commands:
             first_index, last_index, delta_value = tuple(map(int, sub_command.split(",")))
+            if last_index == -1:
+                last_index = len(bookmarks) - 1
             print(f"Adding {delta_value} to bookmarks of indices in range [{first_index}, {last_index}]")
             for i in range(first_index, last_index + 1):
                 bookmarks[i][-1] += delta_value
