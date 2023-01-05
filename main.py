@@ -1071,7 +1071,9 @@ class PdfViewer(tk.Tk):
         try:
             self._hot_key_bindings = {"o": self._open_a_book, "r": self._open_a_recent_book,
                                       "Down": self._down_or_up_arrow, "Up": self._down_or_up_arrow,
-                                      "j": self._jump_to_a_page, "h": self._show_help_text}
+                                      "j": self._jump_to_a_page, "h": self._show_help_text,
+                                      "p": self._show_visible_page_numbers,
+                                      }
         except AttributeError:
             print("Error: Some functions mentioned for key bindings in self._hot_key_bindings do not exist."
                   " No key bindings will be made.")
@@ -1420,6 +1422,29 @@ class PdfViewer(tk.Tk):
             "6. Click 'r' to choose from recently opened books\n" \
             "7. Click 'j' to jump to a page by page number"
         messagebox.showinfo("Help", help_text)
+
+    def _show_visible_page_numbers(self, _event):
+        if ALLOW_DEBUGGING:
+            print("Show visible page numbers")
+        objects_in_visible_region = self._canvas.find_overlapping(0, 0,
+                                                                  self._canvas.winfo_width(),
+                                                                  self._canvas.winfo_height())
+        visible_page_numbers = []
+        for o in objects_in_visible_region:
+            tags = self._canvas.gettags(o)
+            if ALLOW_DEBUGGING:
+                print("Object", o, "in visible region with tags", tags)
+            if TAG_PAGE_IMAGE not in tags:
+                continue
+            page_num = self._dict_canvas_id_to_page_num.get(o)
+            visible_page_numbers.append(page_num)
+
+        if len(visible_page_numbers) == 0:
+            message = "No pages in visible area"
+        else:
+            visible_page_numbers.sort()
+            message = f"Pages in visible area: {', '.join(map(str, visible_page_numbers))}"
+        messagebox.showinfo("Visible pages", message)
 
 
 def main():
