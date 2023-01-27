@@ -27,6 +27,8 @@ SETTINGS_FILE_PATH = os.path.join(_FOLDER_OF_THIS_PYTHON_FILE, "data\\settings.j
 KEY_SETTING_GUI_GEOMETRY = "geometry"
 KEY_SETTING_GUI_STATE = "state"  # maximized window, or normal window
 KEY_CURRENTLY_OPENED_BOOK = "currently-opened-book"
+KEY_GUI_RECENTLY_USED_TEXT_ANNOTATION_ANCHOR = "recently-used-text-annotation-anchor"
+KEY_GUI_RECENTLY_USED_TEXT_ANNOTATION_JUSTIFY = "recently-used-text-annotation-justify"
 
 KEY_CURRENTLY_VISIBLE_PAGES = "currently-visible-pages"
 KEY_SCROLLBAR_POSITIONS = "scroll-bar-positions"
@@ -1011,7 +1013,11 @@ class PdfViewer(tk.Tk):
         # if text is None, ask user for new text
         if text is None:
             self._unbind_all_hot_keys()  # otherwise pressing any hot keys in the text dialog will run their handlers
-            result = ask_text("New Text Annotation", "Please enter text:")
+            result = ask_text("New Text Annotation", "Please enter text:",
+                              text_anchor=self._gui_settings.get(KEY_GUI_RECENTLY_USED_TEXT_ANNOTATION_ANCHOR,
+                                                                 ANNOTATION_TEXT_DEFAULT_ANCHOR),
+                              text_justify=self._gui_settings.get(KEY_GUI_RECENTLY_USED_TEXT_ANNOTATION_JUSTIFY,
+                                                                  ANNOTATION_TEXT_DEFAULT_JUSTIFY))
             self._bind_all_hot_keys()
 
             if result is None:
@@ -1020,6 +1026,10 @@ class PdfViewer(tk.Tk):
                 return
 
             text, anchor, justify = result
+
+            # save user selected anchor and justify for future use
+            self._gui_settings[KEY_GUI_RECENTLY_USED_TEXT_ANNOTATION_ANCHOR] = anchor
+            self._gui_settings[KEY_GUI_RECENTLY_USED_TEXT_ANNOTATION_JUSTIFY] = justify
 
             text = text.strip()
             if text == "":
