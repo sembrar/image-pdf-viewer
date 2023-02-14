@@ -1101,6 +1101,7 @@ class PdfViewer(tk.Tk):
                                       "Down": self._down_or_up_arrow, "Up": self._down_or_up_arrow,
                                       "j": self._jump_to_a_page, "h": self._show_help_text,
                                       "p": self._show_visible_page_numbers,
+                                      "q": self._open_visible_page_externally,
                                       }
         except AttributeError:
             print("Error: Some functions mentioned for key bindings in self._hot_key_bindings do not exist."
@@ -1448,7 +1449,9 @@ class PdfViewer(tk.Tk):
             "Hot keys:\n" \
             "5. Click 'o' to open a new book\n" \
             "6. Click 'r' to choose from recently opened books\n" \
-            "7. Click 'j' to jump to a page by page number"
+            "7. Click 'j' to jump to a page by page number\n" \
+            "8. Click 'p' to show currently visible page numbers\n" \
+            "9. Click 'q' to open currently visible page in an external program"
         messagebox.showinfo("Help", help_text)
 
     def _show_visible_page_numbers(self, _event):
@@ -1473,6 +1476,28 @@ class PdfViewer(tk.Tk):
             visible_page_numbers.sort()
             message = f"Pages in visible area: {', '.join(map(str, visible_page_numbers))}"
         messagebox.showinfo("Visible pages", message)
+
+    def _open_visible_page_externally(self, _event):
+        if ALLOW_DEBUGGING:
+            print("Open visible page externally")
+        objects_in_visible_region = self._canvas.find_overlapping(0, 0,
+                                                                  self._canvas.winfo_width(),
+                                                                  self._canvas.winfo_height())
+        visible_page_numbers = []
+        for o in objects_in_visible_region:
+            tags = self._canvas.gettags(o)
+            if ALLOW_DEBUGGING:
+                print("Object", o, "in visible region with tags", tags)
+            if TAG_PAGE_IMAGE not in tags:
+                continue
+            page_num = self._dict_canvas_id_to_page_num.get(o)
+            visible_page_numbers.append(page_num)
+
+        if len(visible_page_numbers) == 0:
+            messagebox.showinfo("Open visible page externally", "No pages in visible area")
+        else:
+            visible_page_numbers.sort()
+            os.startfile(get_page_path(self._gui_settings.get(KEY_CURRENTLY_OPENED_BOOK), visible_page_numbers[0]))
 
 
 def main():
