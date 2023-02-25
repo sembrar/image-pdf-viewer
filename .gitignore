@@ -1,2 +1,4 @@
-.idea
-data
+.idea/*
+data/*
+
+!data/readMe.txt
